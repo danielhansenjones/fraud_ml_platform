@@ -1,0 +1,56 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fraud
+      POSTGRES_PASSWORD: fraud
+      POSTGRES_DB: fraud
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/001_predictions_table.sql:/docker-entrypoint-initdb.d/001_predictions_table.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fraud -d fraud"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  serving:
+    build:
+      context: serving
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      MODEL_PATH: /app/artifacts/final_model.onnx
+      FEATURE_ORDER_PATH: /app/artifacts/onnx_feature_order.json
+      CATEGORICAL_ENCODER_PATH: /app/artifacts/categorical_encoder.json
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      POSTGRES_DSN: postgres://fraud:fraud@postgres:5432/fraud?sslmode=disable
+      FLAG_THRESHOLD: "0.5"
+      PREDICTION_BUFFER_SIZE: "1000"
+      PREDICTION_FLUSH_INTERVAL_MS: "1000"
+      LOG_LEVEL: info
+    volumes:
+      - ./training/artifacts:/app/artifacts:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
