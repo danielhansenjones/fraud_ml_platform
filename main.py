@@ -1,4 +1,3 @@
-"""Run the full training pipeline sequentially. Each step imports and calls its main() directly."""
 from __future__ import annotations
 
 import argparse

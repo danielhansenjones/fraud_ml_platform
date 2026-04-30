@@ -20,13 +20,19 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations/001_predictions_table.sql:/docker-entrypoint-initdb.d/001_predictions_table.sql
+      - ./migrations/002_labels_table.sql:/docker-entrypoint-initdb.d/002_labels_table.sql
+      - ./migrations/003_models_table.sql:/docker-entrypoint-initdb.d/003_models_table.sql
+      - ./migrations/004_drift_alerts_table.sql:/docker-entrypoint-initdb.d/004_drift_alerts_table.sql
+      - ./migrations/005_canary_decisions_table.sql:/docker-entrypoint-initdb.d/005_canary_decisions_table.sql
+      - ./migrations/006_shadow_comparisons_table.sql:/docker-entrypoint-initdb.d/006_shadow_comparisons_table.sql
+      - ./migrations/007_shadow_summaries_table.sql:/docker-entrypoint-initdb.d/007_shadow_summaries_table.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fraud -d fraud"]
       interval: 5s
       timeout: 3s
       retries: 10
 
-  serving:
+  champion-model:
     build:
       context: serving
       dockerfile: Dockerfile
@@ -51,6 +57,176 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  challenger-model:
+    profiles: [phase2-canary, all]
+    build:
+      context: serving
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8080"
+    environment:
+      PORT: "8080"
+      MODEL_PATH: /app/artifacts/challenger/lgbm_final_model.onnx
+      FEATURE_ORDER_PATH: /app/artifacts/challenger/lgbm_onnx_feature_order.json
+      CATEGORICAL_ENCODER_PATH: /app/artifacts/categorical_encoder.json
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      POSTGRES_DSN: postgres://fraud:fraud@postgres:5432/fraud?sslmode=disable
+      FLAG_THRESHOLD: "0.5"
+      PREDICTION_BUFFER_SIZE: "1000"
+      PREDICTION_FLUSH_INTERVAL_MS: "1000"
+      LOG_LEVEL: info
+    volumes:
+      - ./training/artifacts:/app/artifacts:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  router:
+    build:
+      context: router
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      PORT: "8081"
+      CHAMPION_URL: http://champion-model:8080
+      CHALLENGER_URL: http://challenger-model:8080
+      ADMIN_TOKEN: changeme  # change in production; see .env.example
+      POSTGRES_DSN: postgres://fraud:fraud@postgres:5432/fraud?sslmode=disable
+      INITIAL_CANARY_PERCENT: "0"
+      INITIAL_SHADOW_PERCENT: "100"
+      UPSTREAM_TIMEOUT_MS: "500"
+      SHADOW_BUFFER_SIZE: "256"
+      SHADOW_WORKERS: "4"
+    depends_on:
+      champion-model:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  drift-detector:
+    profiles: [phase2-canary]
+    build:
+      context: .
+      dockerfile: phase2/Dockerfile
+    command: ["python", "phase2/scripts/run_drift_detector.py"]
+    environment:
+      POSTGRES_DSN: postgresql://fraud:fraud@postgres:5432/fraud
+      REFERENCE_WINDOW_START: ${REFERENCE_WINDOW_START}
+      REFERENCE_WINDOW_END: ${REFERENCE_WINDOW_END}
+      RECENT_WINDOW_HOURS: "1"
+      DRIFT_RUN_INTERVAL_MINUTES: "15"
+      DRIFT_MIN_SAMPLES: "200"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  label-joiner:
+    profiles: [phase2-canary]
+    build:
+      context: .
+      dockerfile: phase2/Dockerfile
+    command: ["python", "phase2/scripts/run_label_joiner.py"]
+    environment:
+      POSTGRES_DSN: postgresql://fraud:fraud@postgres:5432/fraud
+      GROUND_TRUTH_PATH: /app/artifacts/prep_test.parquet
+      LABEL_JOINER_INTERVAL_MINUTES: "5"
+    volumes:
+      - ./training/artifacts:/app/artifacts:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  canary-evaluator:
+    profiles: [phase2-canary]
+    build:
+      context: .
+      dockerfile: phase2/Dockerfile
+    command: ["python", "phase2/scripts/run_canary_evaluator.py"]
+    environment:
+      POSTGRES_DSN: postgresql://fraud:fraud@postgres:5432/fraud
+      ROUTER_URL: http://router:8081
+      ADMIN_TOKEN: changeme
+      CHAMPION_VERSION: ${CHAMPION_VERSION}
+      CHALLENGER_VERSION: ${CHALLENGER_VERSION}
+      CANARY_INTERVAL_MINUTES: "60"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  shadow-comparator:
+    profiles: [phase2-canary]
+    build:
+      context: .
+      dockerfile: phase2/Dockerfile
+    command: ["python", "phase2/scripts/run_shadow_comparator.py"]
+    environment:
+      POSTGRES_DSN: postgresql://fraud:fraud@postgres:5432/fraud
+      SHADOW_INTERVAL_MINUTES: "30"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  prometheus:
+    profiles: [observability, all]
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  grafana:
+    profiles: [observability, all]
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  node-exporter:
+    profiles: [observability, all]
+    image: prom/node-exporter:latest
+    ports:
+      - "9100:9100"
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
 
 volumes:
   postgres_data:
+  prometheus_data:
+  grafana_data:
