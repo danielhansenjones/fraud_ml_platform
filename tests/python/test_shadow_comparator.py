@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from phase2.src.shadow.comparator import compute_shadow_summary
+from monitoring.shadow.comparator import compute_shadow_summary
 
 
 def _make_pool(rows: list[tuple]) -> MagicMock:

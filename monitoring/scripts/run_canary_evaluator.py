@@ -7,9 +7,9 @@ from datetime import datetime, timezone
 
 import requests
 
-from phase2.src.canary.evaluator import CanaryDecision, evaluate_canary
-from phase2.src.common.config import CanaryConfig
-from phase2.src.common.db import make_pool
+from monitoring.canary.evaluator import CanaryDecision, evaluate_canary
+from monitoring.common.config import CanaryConfig
+from monitoring.common.db import make_pool
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)

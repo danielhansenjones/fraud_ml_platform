@@ -65,11 +65,11 @@ docker compose up -d redis postgres
 uv run python training/scripts/load_features_to_redis.py
 docker compose up --build
 
-# Phase 2: challenger, router, canary, monitoring (LightGBM training ~60 min)
+# Monitoring: challenger, router, canary, monitoring (LightGBM training ~60 min)
 docker compose up -d postgres redis
-uv run python phase2/main.py
+uv run python monitoring/main.py
 # edit .env: set REFERENCE_WINDOW_START/END and CHAMPION/CHALLENGER_VERSION
-docker compose --profile phase2-canary up --build -d
+docker compose --profile monitoring up --build -d
 ```
 
 See [PRODUCTION.md](PRODUCTION.md) for the full architecture, drift methodology, canary walkthrough, ONNX negative result, and load test results.

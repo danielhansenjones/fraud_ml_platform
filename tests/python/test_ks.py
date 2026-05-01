@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from phase2.src.drift.ks import compute_ks
+from monitoring.drift.ks import compute_ks
 
 
 def test_identical_distributions_not_flagged():

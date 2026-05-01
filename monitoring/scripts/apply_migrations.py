@@ -41,7 +41,7 @@ def main() -> None:
             log.info("applied %s", filename)
     finally:
         conn.close()
-    log.info("all phase 2 migrations applied")
+    log.info("all monitoring migrations applied")
 
 
 if __name__ == "__main__":

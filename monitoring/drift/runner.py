@@ -10,9 +10,9 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 from psycopg_pool import ConnectionPool
 
-from phase2.src.drift.js import compute_js_on_hashes
-from phase2.src.drift.ks import compute_ks
-from phase2.src.drift.psi import compute_psi
+from monitoring.drift.js import compute_js_on_hashes
+from monitoring.drift.ks import compute_ks
+from monitoring.drift.psi import compute_psi
 
 log = logging.getLogger(__name__)
 

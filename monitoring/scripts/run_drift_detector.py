@@ -4,9 +4,9 @@ import logging
 import time
 from datetime import datetime, timezone
 
-from phase2.src.common.config import DriftConfig
-from phase2.src.common.db import make_pool
-from phase2.src.drift.runner import run_drift_check
+from monitoring.common.config import DriftConfig
+from monitoring.common.db import make_pool
+from monitoring.drift.runner import run_drift_check
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)

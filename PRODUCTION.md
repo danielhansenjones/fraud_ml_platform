@@ -1,6 +1,6 @@
-# Phase 2: Production ML Lifecycle
+# Production ML Lifecycle
 
-Layered onto the phase 1 XGBoost serving stack.
+Layered onto the core XGBoost serving stack.
 Adds drift detection, shadow deployment, canary rollout with automatic rollback, late-label evaluation, load testing, and Grafana dashboards.
 
 ## What this adds
@@ -163,7 +163,7 @@ Run 1 (after a feature pipeline incident):
 
 Promotion is gated on prediction-quality metrics (PR-AUC, Brier) plus a latency guardrail. The challenger trips a rollback if its p95 exceeds the champion's by more than `CANARY_LATENCY_P95_ROLLBACK_RATIO` (default 3x), wide enough to tolerate a heavier model under partial canary load without flapping. Upstream error rate is collected in Prometheus for dashboards rather than wired into the decision so the gate stays driven by labeled outcomes.
 
-Retraining is operator-triggered. The drift detector writes to `drift_alerts`; when sustained drift warrants it, rerun `phase2/main.py --only train_challenger` and restart with the new challenger artifact. Auto-retraining off unlabeled drift is deliberately left out: promotion is gated on labeled outcomes, and feeding drift signals into model lifecycle changes the failure mode in ways that need their own evaluation.
+Retraining is operator-triggered. The drift detector writes to `drift_alerts`; when sustained drift warrants it, rerun `monitoring/main.py --only train_challenger` and restart with the new challenger artifact. Auto-retraining off unlabeled drift is deliberately left out: promotion is gated on labeled outcomes, and feeding drift signals into model lifecycle changes the failure mode in ways that need their own evaluation.
 
 ## Load test results
 
@@ -253,13 +253,13 @@ Three fixes were needed to produce a graph ORT 1.20.1 accepts:
 
 Phase 1 must be complete: training done, XGBoost ONNX exported, Redis loaded.
 
-### Phase 2 setup
+### Monitoring setup
 
 Start Postgres and Redis first:
 
 ```bash
 docker compose up -d postgres redis
-uv run python phase2/main.py
+uv run python monitoring/main.py
 ```
 
 Runs three steps: apply migrations 002-007, train the LightGBM challenger (200 Optuna trials, ~60 min), register both models in Postgres, and write `training/artifacts/model_versions.json`.
@@ -267,13 +267,13 @@ Runs three steps: apply migrations 002-007, train the LightGBM challenger (200 O
 ### Bring up the serving stack
 
 ```bash
-docker compose --profile phase2-canary up --build -d
+docker compose --profile monitoring up --build -d
 ```
 
 With observability (Prometheus + Grafana + node-exporter):
 
 ```bash
-docker compose --profile phase2-canary --profile observability up --build -d
+docker compose --profile monitoring --profile observability up --build -d
 ```
 
 Phase 1 only (champion + router, no challenger):
@@ -296,17 +296,17 @@ Before starting the stack, fill in `.env` (copy from `.env.example`):
 REFERENCE_WINDOW_START=<first hour with >=200 predictions>
 REFERENCE_WINDOW_END=<end of that window>
 
-# from training/artifacts/model_versions.json after running phase2/main.py
+# from training/artifacts/model_versions.json after running monitoring/main.py
 CHAMPION_VERSION=<sha>
 CHALLENGER_VERSION=<sha>
 ```
 
-The four monitoring jobs (drift-detector, label-joiner, canary-evaluator, shadow-comparator) start as containers when `docker compose --profile phase2-canary up` runs.
+The four monitoring jobs (drift-detector, label-joiner, canary-evaluator, shadow-comparator) start as containers when `docker compose --profile monitoring up` runs.
 
 ### Smoke test
 
 ```bash
-ROUTER_URL=http://localhost:8081 bash scripts/phase2_smoke_test.sh
+ROUTER_URL=http://localhost:8081 bash ops/phase2_smoke_test.sh
 ```
 
 ### Load tests
@@ -327,6 +327,6 @@ ROUTER_URL=http://localhost:8081 k6 run load/k6/score_with_failures.js
 ### Tests
 
 ```bash
-uv run pytest phase2/tests/ -v
+uv run pytest tests/python/ -v
 cd router && go test ./...
 ```

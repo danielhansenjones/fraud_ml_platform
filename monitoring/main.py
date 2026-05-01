@@ -1,9 +1,9 @@
 """Run from the project root after `uv sync`.
 
 Usage:
-  uv run python phase2/main.py                          # run all steps
-  uv run python phase2/main.py --from train_challenger  # resume from a step
-  uv run python phase2/main.py --only register_models   # run one step
+  uv run python monitoring/main.py                          # run all steps
+  uv run python monitoring/main.py --from train_challenger  # resume from a step
+  uv run python monitoring/main.py --only register_models   # run one step
 
 After this completes:
   docker compose --profile all up --build
@@ -15,9 +15,9 @@ import sys
 import time
 
 STEPS = [
-    ("apply_migrations", "phase2.scripts.apply_migrations"),
-    ("train_challenger",  "phase2.scripts.train_challenger"),
-    ("register_models",   "phase2.scripts.register_models"),
+    ("apply_migrations", "monitoring.scripts.apply_migrations"),
+    ("train_challenger",  "monitoring.scripts.train_challenger"),
+    ("register_models",   "monitoring.scripts.register_models"),
 ]
 
 STEP_NAMES = [name for name, _ in STEPS]
@@ -63,14 +63,14 @@ def main() -> None:
             sys.exit(1)
         print(f"--- {name} done ({time.time() - t0:.1f}s) ---\n")
 
-    print("Phase 2 setup complete.")
+    print("Monitoring setup complete.")
     print("")
     print("Next steps:")
     print("  1. Copy .env.example to .env and fill in REFERENCE_WINDOW_START,")
     print("     REFERENCE_WINDOW_END, CHAMPION_VERSION, CHALLENGER_VERSION.")
     print("     Values for the last two are in training/artifacts/model_versions.json.")
     print("  2. docker compose down (if stack is running)")
-    print("  3. docker compose --profile phase2-canary up --build")
+    print("  3. docker compose --profile monitoring up --build")
 
 
 if __name__ == "__main__":

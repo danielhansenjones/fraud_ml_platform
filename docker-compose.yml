@@ -64,7 +64,7 @@ services:
       retries: 5
 
   challenger-model:
-    profiles: [phase2-canary, all]
+    profiles: [monitoring, all]
     build:
       context: serving
       dockerfile: Dockerfile
@@ -119,11 +119,11 @@ services:
         condition: service_healthy
 
   drift-detector:
-    profiles: [phase2-canary]
+    profiles: [monitoring]
     build:
       context: .
-      dockerfile: phase2/Dockerfile
-    command: ["python", "phase2/scripts/run_drift_detector.py"]
+      dockerfile: monitoring/Dockerfile
+    command: ["python", "monitoring/scripts/run_drift_detector.py"]
     environment:
       POSTGRES_DSN: postgresql://fraud:fraud@postgres:5432/fraud
       REFERENCE_WINDOW_START: ${REFERENCE_WINDOW_START}
@@ -137,11 +137,11 @@ services:
     restart: unless-stopped
 
   label-joiner:
-    profiles: [phase2-canary]
+    profiles: [monitoring]
     build:
       context: .
-      dockerfile: phase2/Dockerfile
-    command: ["python", "phase2/scripts/run_label_joiner.py"]
+      dockerfile: monitoring/Dockerfile
+    command: ["python", "monitoring/scripts/run_label_joiner.py"]
     environment:
       POSTGRES_DSN: postgresql://fraud:fraud@postgres:5432/fraud
       GROUND_TRUTH_PATH: /app/artifacts/prep_test.parquet
@@ -154,11 +154,11 @@ services:
     restart: unless-stopped
 
   canary-evaluator:
-    profiles: [phase2-canary]
+    profiles: [monitoring]
     build:
       context: .
-      dockerfile: phase2/Dockerfile
-    command: ["python", "phase2/scripts/run_canary_evaluator.py"]
+      dockerfile: monitoring/Dockerfile
+    command: ["python", "monitoring/scripts/run_canary_evaluator.py"]
     environment:
       POSTGRES_DSN: postgresql://fraud:fraud@postgres:5432/fraud
       ROUTER_URL: http://router:8081
@@ -172,11 +172,11 @@ services:
     restart: unless-stopped
 
   shadow-comparator:
-    profiles: [phase2-canary]
+    profiles: [monitoring]
     build:
       context: .
-      dockerfile: phase2/Dockerfile
-    command: ["python", "phase2/scripts/run_shadow_comparator.py"]
+      dockerfile: monitoring/Dockerfile
+    command: ["python", "monitoring/scripts/run_shadow_comparator.py"]
     environment:
       POSTGRES_DSN: postgresql://fraud:fraud@postgres:5432/fraud
       SHADOW_INTERVAL_MINUTES: "30"

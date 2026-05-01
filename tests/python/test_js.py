@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from phase2.src.drift.js import compute_js_on_hashes
+from monitoring.drift.js import compute_js_on_hashes
 
 
 def _make_hashes_from_bucket(bucket: int, n: int) -> list[str]:

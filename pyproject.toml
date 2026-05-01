@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["training", "phase2"]
+packages = ["training", "monitoring"]
 
 [project]
 name = "fraud-ml-platform"

@@ -4,7 +4,7 @@ from datetime import timedelta
 from unittest.mock import MagicMock
 
 
-from phase2.src.labels.simulator import simulate_label_arrivals
+from monitoring.labels.simulator import simulate_label_arrivals
 
 
 def _make_pool(rows: list[tuple]) -> MagicMock:

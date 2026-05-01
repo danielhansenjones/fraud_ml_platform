@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from phase2.src.canary.evaluator import evaluate_canary
+from monitoring.canary.evaluator import evaluate_canary
 
 
 def _make_config(**overrides):

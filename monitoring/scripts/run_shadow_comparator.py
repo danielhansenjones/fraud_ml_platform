@@ -3,9 +3,9 @@ from __future__ import annotations
 import logging
 import time
 
-from phase2.src.common.config import ShadowConfig
-from phase2.src.common.db import make_pool
-from phase2.src.shadow.comparator import compute_shadow_summary
+from monitoring.common.config import ShadowConfig
+from monitoring.common.db import make_pool
+from monitoring.shadow.comparator import compute_shadow_summary
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)

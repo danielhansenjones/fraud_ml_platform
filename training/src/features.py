@@ -67,14 +67,3 @@ def apply_categorical_encoder(
             continue
         df[col + "_encoded"] = df[col].astype(str).map(mapping).fillna(-1).astype(int)
     return df
-
-
-def encode_categoricals(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
-    df = df.copy()
-    for col in cols:
-        if col not in df.columns:
-            continue
-        cats = sorted(df[col].dropna().astype(str).unique())
-        mapping = {cat: idx for idx, cat in enumerate(cats)}
-        df[col] = df[col].astype(str).map(mapping).fillna(-1).astype(int)
-    return df

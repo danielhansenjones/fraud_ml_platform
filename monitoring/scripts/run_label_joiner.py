@@ -6,9 +6,9 @@ import time
 import numpy as np
 import pyarrow.parquet as pq
 
-from phase2.src.common.config import LabelConfig
-from phase2.src.common.db import make_pool
-from phase2.src.labels.simulator import default_delay_distribution, simulate_label_arrivals
+from monitoring.common.config import LabelConfig
+from monitoring.common.db import make_pool
+from monitoring.labels.simulator import default_delay_distribution, simulate_label_arrivals
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)

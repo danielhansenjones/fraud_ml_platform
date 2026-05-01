@@ -19,7 +19,7 @@ ARTIFACTS = ROOT / "training" / "artifacts"
 CHALLENGER_DIR = ARTIFACTS / "challenger"
 CHALLENGER_DIR.mkdir(parents=True, exist_ok=True)
 
-OPTUNA_DIR = ROOT / "phase2" / "optuna"
+OPTUNA_DIR = ROOT / "training" / "optuna"
 OPTUNA_DIR.mkdir(parents=True, exist_ok=True)
 
 

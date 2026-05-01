@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from phase2.src.drift.psi import compute_psi
+from monitoring.drift.psi import compute_psi
 
 
 def test_identical_distributions_near_zero():
