@@ -36,7 +36,7 @@ def engineer_email_features(df: pd.DataFrame) -> pd.DataFrame:
     df["p_email_tld"] = _tld(df["P_emaildomain"])
     if "R_emaildomain" in df.columns:
         df["r_email_tld"] = _tld(df["R_emaildomain"])
-    # Do not create r_email_tld when R_emaildomain was dropped - all-NaN column carries no signal
+    # Skip r_email_tld when R_emaildomain was dropped; an all-NaN column carries no signal.
     p = df["P_emaildomain"].fillna("__missing__")
     r = df["R_emaildomain"].fillna("__missing__") if "R_emaildomain" in df.columns else pd.Series(
         ["__missing__"] * len(df), index=df.index

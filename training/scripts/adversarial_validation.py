@@ -1,4 +1,3 @@
-"""Detect distribution shift between train and test pools."""
 from __future__ import annotations
 
 import json

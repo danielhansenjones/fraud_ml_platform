@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from training.src.features import (
     apply_categorical_encoder,
@@ -39,9 +38,9 @@ def test_drop_high_missing_threshold_boundary():
 def test_engineer_time_features_values():
     df = pd.DataFrame({"TransactionDT": [3600, 86400, 86400 * 2 + 7200]})
     result = engineer_time_features(df)
-    assert result["hour"].iloc[0] == 1       # 3600s = 1 hour
-    assert result["day_of_week"].iloc[1] == 1  # day 1
-    assert result["day"].iloc[2] == 2         # day 2
+    assert result["hour"].iloc[0] == 1
+    assert result["day_of_week"].iloc[1] == 1
+    assert result["day"].iloc[2] == 2
 
 
 def test_engineer_time_features_no_mutation(sample_df):
@@ -69,10 +68,10 @@ def test_engineer_email_features_match():
         "R_emaildomain": ["gmail.com", "gmail.com", "gmail.com", np.nan],
     })
     result = engineer_email_features(df)
-    assert result["email_match"].iloc[0] == 1   # same
-    assert result["email_match"].iloc[1] == 0   # different
-    assert result["email_match"].iloc[2] == 0   # NaN P
-    assert result["email_match"].iloc[3] == 0   # NaN R
+    assert result["email_match"].iloc[0] == 1
+    assert result["email_match"].iloc[1] == 0
+    assert result["email_match"].iloc[2] == 0
+    assert result["email_match"].iloc[3] == 0
 
 
 def test_engineer_email_features_tld():

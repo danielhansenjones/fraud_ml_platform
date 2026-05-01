@@ -14,8 +14,6 @@ import xgboost as xgb
 
 
 class _IsotonicCalibrated:
-    """Wraps an XGBClassifier with an isotonic calibration layer fitted on held-out data."""
-
     def __init__(self, clf: xgb.XGBClassifier, calibrator: IsotonicRegression):
         self.clf = clf
         self.calibrator = calibrator

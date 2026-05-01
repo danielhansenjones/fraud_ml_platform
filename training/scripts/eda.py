@@ -1,4 +1,4 @@
-"""EDA on IEEE-CIS train data. Produces summary JSON and plots. No downstream script depends on this."""
+"""No downstream pipeline step depends on this script's output artifacts."""
 from __future__ import annotations
 
 import json
@@ -21,28 +21,22 @@ def main() -> None:
     df = load_and_merge(DATA_DIR)
     print(f"Merged shape: {df.shape}")
 
-    # Class distribution
     fraud_counts = df["isFraud"].value_counts().to_dict()
     fraud_frac = float(df["isFraud"].mean())
     print(f"Fraud fraction: {fraud_frac:.4f}")
 
-    # Temporal coverage
     dt_min = int(df["TransactionDT"].min())
     dt_max = int(df["TransactionDT"].max())
     dt_span_days = (dt_max - dt_min) / 86400
 
-    # Missing values
     missing = df.isnull().mean().sort_values(ascending=False)
     top30_missing = missing.head(30)
 
-    # Categorical cardinality
     obj_cols = [c for c in df.columns if df[c].dtype.kind == "O"]
     cardinality = {c: int(df[c].nunique()) for c in obj_cols}
 
-    # Email domain
     p_email_vc = df["P_emaildomain"].value_counts().head(20).to_dict()
 
-    # ProductCD
     product_vc = df["ProductCD"].value_counts().to_dict()
 
     summary = {
@@ -61,7 +55,6 @@ def main() -> None:
     with open(ARTIFACTS / "eda_summary.json", "w") as f:
         json.dump(summary, f, indent=2)
 
-    # Plot: missing top 30
     fig, ax = plt.subplots(figsize=(12, 8))
     top30_missing.plot.barh(ax=ax)
     ax.set_xlabel("Missing fraction")
@@ -70,7 +63,6 @@ def main() -> None:
     fig.savefig(PLOTS / "missing_top30.png", dpi=150)
     plt.close(fig)
 
-    # Plot: class distribution
     fig, ax = plt.subplots(figsize=(5, 4))
     ax.bar(["Not Fraud", "Fraud"], [fraud_counts.get(0, 0), fraud_counts.get(1, 0)])
     ax.set_ylabel("Count")
@@ -79,7 +71,6 @@ def main() -> None:
     fig.savefig(PLOTS / "class_dist.png", dpi=150)
     plt.close(fig)
 
-    # Plot: TransactionAmt log histogram
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.hist(np.log1p(df["TransactionAmt"].dropna()), bins=100, edgecolor="none")
     ax.set_xlabel("log1p(TransactionAmt)")
@@ -89,7 +80,6 @@ def main() -> None:
     fig.savefig(PLOTS / "amount_log.png", dpi=150)
     plt.close(fig)
 
-    # Plot: temporal transaction volume (daily)
     daily = df.groupby(df["TransactionDT"] // 86400).size()
     fig, ax = plt.subplots(figsize=(12, 4))
     ax.plot(daily.index, daily.values)

@@ -1,4 +1,3 @@
-"""Produce modeling-ready parquet files with stable feature list."""
 from __future__ import annotations
 
 import json
@@ -37,7 +36,6 @@ def main() -> None:
     df = engineer_amount_features(df)
     df = engineer_email_features(df)
 
-    # Cast object columns to Categorical with sorted categories
     obj_cols = [c for c in df.columns if df[c].dtype.kind == "O"]
     for col in obj_cols:
         cats = sorted(df[col].dropna().unique().tolist())
@@ -45,14 +43,12 @@ def main() -> None:
 
     df = df.sort_values("TransactionDT").reset_index(drop=True)
 
-    # Encode categoricals to integer codes
     encoder = build_categorical_encoder(df, obj_cols)
     df = apply_categorical_encoder(df, encoder)
 
     with open(ARTIFACTS / "categorical_encoder.json", "w") as f:
         json.dump(encoder, f, indent=2)
 
-    # 80/20 temporal split
     n = len(df)
     train_end = int(n * 0.8)
     train_df = df.iloc[:train_end].copy()

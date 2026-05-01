@@ -1,4 +1,3 @@
-"""Optuna hyperparameter search with SQLite persistence."""
 from __future__ import annotations
 
 import json
@@ -55,7 +54,6 @@ def main() -> None:
     trials_df = study.trials_dataframe()
     trials_df.to_csv(ARTIFACTS / "study_trials.csv", index=False)
 
-    # Plots
     try:
         fig = optuna.visualization.matplotlib.plot_optimization_history(study)
         fig.get_figure().savefig(PLOTS / "optuna_history.png", dpi=150)

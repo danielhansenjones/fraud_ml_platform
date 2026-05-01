@@ -1,4 +1,3 @@
-"""Fit final model, calibrate, evaluate on test set, compute SHAP."""
 from __future__ import annotations
 
 import json
@@ -46,7 +45,6 @@ def main() -> None:
         and train_df[c].dtype.name != "category"
     ]
 
-    # 90/10 time split within train pool
     n = len(train_df)
     val_start = int(n * 0.9)
     tr = train_df.iloc[:val_start]
@@ -89,7 +87,6 @@ def main() -> None:
     with open(ARTIFACTS / "results.json", "w") as f:
         json.dump(results, f, indent=2)
 
-    # Reliability diagram
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     for ax, probs, label in [
         (ax1, test_probs_uncal, "Uncalibrated"),
@@ -106,7 +103,6 @@ def main() -> None:
     fig.savefig(PLOTS / "calibration_before_after.png", dpi=150)
     plt.close(fig)
 
-    # SHAP
     sample_size = min(10000, len(X_test))
     X_shap = X_test.sample(sample_size, random_state=42)
     explainer = shap.TreeExplainer(clf)
@@ -121,7 +117,6 @@ def main() -> None:
     fig.savefig(PLOTS / "shap_summary.png", dpi=150)
     plt.close(fig)
 
-    # Top-10 dependence plots: prefer named features
     mean_abs_shap = np.abs(shap_values).mean(axis=0)
     sorted_idx = np.argsort(mean_abs_shap)[::-1]
     top10 = [feature_cols[i] for i in sorted_idx[:10]]

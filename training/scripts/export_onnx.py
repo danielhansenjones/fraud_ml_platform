@@ -1,4 +1,3 @@
-"""Export XGBoost model to ONNX and run parity test."""
 from __future__ import annotations
 
 import json

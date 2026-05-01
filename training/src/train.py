@@ -34,7 +34,6 @@ def fit_xgboost(
         eval_set=[(X_val.astype("float32"), y_val)],
         verbose=100,
     )
-    # Move booster to CPU for predict_proba calls - avoids device mismatch warning
-    # when input data arrives as a CPU pandas DataFrame
+    # predict_proba receives CPU pandas DataFrames; keep booster on CPU to avoid device mismatch.
     clf.set_params(device="cpu")
     return clf

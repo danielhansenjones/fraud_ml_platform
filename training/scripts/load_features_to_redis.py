@@ -1,4 +1,3 @@
-"""Populate Redis feature cache from prep_test.parquet."""
 from __future__ import annotations
 
 import json
@@ -21,11 +20,18 @@ PROGRESS_EVERY = 50_000
 def main() -> None:
     test_df = pd.read_parquet(ARTIFACTS / "prep_test.parquet")
 
-    with open(ARTIFACTS / "onnx_feature_order.json") as f:
-        feature_order = json.load(f)
+    # Store all features, not just the champion's subset. Each model service reads only
+    # the columns it needs via its own feature order file. Category columns are encoded
+    # to integer codes so the Go client can deserialize them as float32 uniformly across
+    # champion and challenger.
+    all_feature_cols = [c for c in test_df.columns if c != "TransactionID"]
+    feature_df = test_df[all_feature_cols].copy()
+    for col in feature_df.columns:
+        if hasattr(feature_df[col], "cat"):
+            feature_df[col] = feature_df[col].cat.codes.astype("float64")
 
     print(f"Loading {len(test_df)} transactions into Redis at {REDIS_HOST}:{REDIS_PORT}")
-    print(f"Feature count: {len(feature_order)}")
+    print(f"Feature count: {len(all_feature_cols)}")
 
     r = redis.Redis(
         host=REDIS_HOST,
@@ -37,16 +43,14 @@ def main() -> None:
     )
     r.ping()
 
-    # Pre-extract as list of dicts - orders of magnitude faster than iterrows
+    # to_dict("records") is orders of magnitude faster than iterrows for this volume.
     txn_ids = test_df["TransactionID"].to_numpy(dtype=np.int64)
-    feature_df = test_df[feature_order].copy()
     records = feature_df.to_dict("records")
 
     total = 0
     pipe = r.pipeline(transaction=False)
 
     for txn_id, feat_dict in zip(txn_ids, records):
-        # Replace NaN with None for JSON serialization
         clean = {k: (None if isinstance(v, float) and np.isnan(v) else v) for k, v in feat_dict.items()}
         pipe.set(f"fraud:features:{txn_id}", json.dumps(clean), ex=FEATURE_TTL)
         total += 1
@@ -63,7 +67,6 @@ def main() -> None:
 
     print(f"Loaded {total:,} feature vectors into Redis")
 
-    # Sanity check
     print("Sanity check: reading 5 random keys...")
     sample_ids = random.sample(txn_ids.tolist(), 5)
     for txn_id in sample_ids:
@@ -71,10 +74,10 @@ def main() -> None:
         val = r.get(key)
         assert val is not None, f"Missing key: {key}"
         features = json.loads(val)
-        assert len(features) == len(feature_order), (
-            f"Feature count mismatch: got {len(features)}, expected {len(feature_order)}"
+        assert len(features) == len(all_feature_cols), (
+            f"Feature count mismatch: got {len(features)}, expected {len(all_feature_cols)}"
         )
-        assert set(features.keys()) == set(feature_order), "Feature key mismatch"
+        assert set(features.keys()) == set(all_feature_cols), "Feature key mismatch"
     print("Sanity check passed.")
 
 

@@ -22,12 +22,10 @@ def run_adversarial_validation(
     n_splits: int = 5,
     seed: int = 42,
 ) -> tuple[float, pd.Series]:
-    """Returns mean AUC and feature importances (gain) sorted descending."""
     feature_cols = [
         c for c in train_df.columns
         if c not in EXCLUDE_COLS and not c.endswith("_encoded")
     ]
-    # Use integer-encoded versions where available
     encoded = [c + "_encoded" for c in feature_cols if c + "_encoded" in train_df.columns]
     raw_cats = [c for c in feature_cols if c + "_encoded" not in train_df.columns]
     use_cols = raw_cats + encoded
@@ -38,7 +36,6 @@ def run_adversarial_validation(
     X = pd.concat([train_X, test_X], ignore_index=True)
     y = np.array([1] * len(train_X) + [0] * len(test_X))
 
-    # Fill missing with -1 for xgboost
     X = X.fillna(-1)
 
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)

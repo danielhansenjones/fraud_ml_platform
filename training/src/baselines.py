@@ -20,7 +20,7 @@ _METRICS_KEYS = ["pr_auc", "roc_auc", "f1", "brier"]
 _XGB_DEVICE = os.environ.get("XGB_DEVICE", "cuda")
 _LGB_DEVICE = os.environ.get("LGB_DEVICE", "gpu")
 
-# LR and RF are CPU-only (sklearn has no GPU path). Subsample to keep runtime reasonable.
+# sklearn LR and RF have no GPU path; subsample to keep baseline CV runtime reasonable.
 _LR_RF_SAMPLE = int(os.environ.get("LR_RF_SAMPLE", "100000"))
 
 
@@ -68,7 +68,7 @@ def _stratified_sample(
 ) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
     if len(X) <= n:
         return X, y, transaction_dt
-    # Preserve class balance and temporal order within sample
+    # Stratified sample preserves fraud rate and temporal order so CV splits stay valid.
     idx = (
         y.reset_index(drop=True)
         .groupby(y.values, group_keys=False)

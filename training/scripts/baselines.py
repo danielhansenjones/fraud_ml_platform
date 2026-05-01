@@ -1,4 +1,3 @@
-"""Baseline model comparison with purged time-series CV."""
 from __future__ import annotations
 
 import json
@@ -18,8 +17,7 @@ EXCLUDE_FROM_FEATURES = {"TransactionID", "TransactionDT", "isFraud", "day"}
 
 
 def _load_features(train_df: pd.DataFrame, pruned_features: list[str]) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
-    # Exclude Categorical dtype columns - the _encoded int versions carry the same info
-    # and are compatible with fillna(-1) and all model backends
+    # _encoded int versions carry the same info as Categorical cols and work with fillna(-1) across all backends
     feature_cols = [
         c for c in pruned_features
         if c in train_df.columns
