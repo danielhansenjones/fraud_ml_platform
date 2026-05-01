@@ -1,0 +1,187 @@
+{
+  "title": "Shadow Mode",
+  "uid": "shadow-mode",
+  "schemaVersion": 38,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "2m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Latest Correlation",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-fraud"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT correlation FROM shadow_summaries ORDER BY created_at DESC LIMIT 1",
+          "format": "table",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Latest Disagreement Rate",
+      "type": "stat",
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-fraud"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT disagreement_rate FROM shadow_summaries ORDER BY created_at DESC LIMIT 1",
+          "format": "table",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Latest Abs Diff p50/p95/p99",
+      "type": "stat",
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-fraud"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT abs_diff_p50, abs_diff_p95, abs_diff_p99 FROM shadow_summaries ORDER BY created_at DESC LIMIT 1",
+          "format": "table",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Comparisons in Window",
+      "type": "stat",
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-fraud"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT n_comparisons FROM shadow_summaries ORDER BY created_at DESC LIMIT 1",
+          "format": "table",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Correlation Over Time",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-fraud"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT created_at as time, correlation FROM shadow_summaries ORDER BY created_at",
+          "format": "time_series",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Disagreement Rate Over Time",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-fraud"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT created_at as time, disagreement_rate FROM shadow_summaries ORDER BY created_at",
+          "format": "time_series",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Latest Confusion Matrix (champion flag vs challenger flag)",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-fraud"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT confusion->>'tp' as tp, confusion->>'fp' as fp, confusion->>'fn' as fn, confusion->>'tn' as tn FROM shadow_summaries ORDER BY created_at DESC LIMIT 1",
+          "format": "table",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-fraud"
+          }
+        }
+      ]
+    }
+  ]
+}

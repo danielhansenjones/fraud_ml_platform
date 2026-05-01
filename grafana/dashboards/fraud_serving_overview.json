@@ -1,0 +1,178 @@
+{
+  "title": "Fraud Serving Overview",
+  "uid": "fraud-serving-overview",
+  "schemaVersion": 38,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request Rate",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-fraud"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(router_requests_total[1m])) by (decision)",
+          "legendFormat": "{{decision}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Latency p50/p95/p99",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-fraud"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(router_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p50",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(router_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(router_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p99",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Error Rate",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-fraud"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(router_requests_total{status='error'}[1m])) / sum(rate(router_requests_total[1m]))",
+          "legendFormat": "error rate",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Predictions per Minute by Model",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-fraud"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(router_requests_total[1m])) by (upstream)",
+          "legendFormat": "{{upstream}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Canary Traffic Split",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-fraud"
+      },
+      "targets": [
+        {
+          "expr": "router_canary_traffic_percent",
+          "legendFormat": "challenger %",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Shadow Buffer Size",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 16,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-fraud"
+      },
+      "targets": [
+        {
+          "expr": "router_shadow_buffer_size",
+          "legendFormat": "buffer",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        }
+      ]
+    }
+  ]
+}

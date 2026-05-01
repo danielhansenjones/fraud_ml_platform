@@ -1,0 +1,215 @@
+{
+  "title": "Drift Detection",
+  "uid": "drift-detection",
+  "schemaVersion": 38,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Latest PSI",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-fraud"
+      },
+      "targets": [
+        {
+          "expr": "drift_metric_value{detector='psi', metric='psi'}",
+          "legendFormat": "PSI",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Latest KS Statistic",
+      "type": "stat",
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-fraud"
+      },
+      "targets": [
+        {
+          "expr": "drift_metric_value{detector='ks', metric='ks_statistic'}",
+          "legendFormat": "KS",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Latest JS Divergence",
+      "type": "stat",
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-fraud"
+      },
+      "targets": [
+        {
+          "expr": "drift_metric_value{detector='js', metric='js_divergence'}",
+          "legendFormat": "JS",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Alerts/Hour",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-fraud"
+      },
+      "targets": [
+        {
+          "expr": "rate(drift_alerts_total[1h]) * 3600",
+          "legendFormat": "alerts/h",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "PSI Over Time",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-fraud"
+      },
+      "targets": [
+        {
+          "expr": "drift_metric_value{detector='psi'}",
+          "legendFormat": "PSI",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "KS / JS Over Time",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-fraud"
+      },
+      "targets": [
+        {
+          "expr": "drift_metric_value{detector='ks'}",
+          "legendFormat": "KS statistic",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        },
+        {
+          "expr": "drift_metric_value{detector='js'}",
+          "legendFormat": "JS divergence",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Recent Drift Alerts",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-fraud"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT created_at, detector_name, metric_name, metric_value, threshold, severity FROM drift_alerts ORDER BY created_at DESC LIMIT 50",
+          "format": "table",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-fraud"
+          }
+        }
+      ]
+    }
+  ]
+}

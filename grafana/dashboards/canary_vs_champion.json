@@ -1,0 +1,137 @@
+{
+  "title": "Canary vs Champion",
+  "uid": "canary-vs-champion",
+  "schemaVersion": 38,
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "5m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Active Canary Traffic Split",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-fraud"
+      },
+      "targets": [
+        {
+          "expr": "router_canary_traffic_percent",
+          "legendFormat": "challenger %",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Latest Canary Decision",
+      "type": "table",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 18,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-fraud"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT created_at, champion_version, challenger_version, decision, reason FROM canary_decisions ORDER BY created_at DESC LIMIT 5",
+          "format": "table",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Champion vs Challenger PR-AUC",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-fraud"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT created_at as time, (metrics->'champion'->>'pr_auc')::float as champion_pr_auc, (metrics->'challenger'->>'pr_auc')::float as challenger_pr_auc FROM canary_decisions WHERE metrics ? 'champion' ORDER BY created_at",
+          "format": "time_series",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Champion vs Challenger Flag Rate",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-fraud"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT created_at as time, (metrics->'champion'->>'flag_rate')::float as champion_flag_rate, (metrics->'challenger'->>'flag_rate')::float as challenger_flag_rate FROM canary_decisions WHERE metrics ? 'champion' ORDER BY created_at",
+          "format": "time_series",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-fraud"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Canary Decision History",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-fraud"
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT created_at, decision, reason, champion_version, challenger_version FROM canary_decisions ORDER BY created_at DESC LIMIT 100",
+          "format": "table",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-fraud"
+          }
+        }
+      ]
+    }
+  ]
+}
