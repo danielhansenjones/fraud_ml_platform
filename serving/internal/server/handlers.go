@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +33,7 @@ type Handler struct {
 	modelRunner   ModelScorer
 	store         PredictionLogger
 	threshold     float64
+	logWg         sync.WaitGroup
 }
 
 func NewHandler(
@@ -60,6 +63,7 @@ type scoreRequest struct {
 
 type scoreResponse struct {
 	TransactionID    int64   `json:"transaction_id"`
+	PredictionID     string  `json:"prediction_id"`
 	FraudProbability float64 `json:"fraud_probability"`
 	Flagged          bool    `json:"flagged"`
 	ModelVersion     string  `json:"model_version"`
@@ -96,6 +100,7 @@ func (h *Handler) Score(w http.ResponseWriter, r *http.Request) {
 	inferMs := float64(time.Since(inferStart).Microseconds()) / 1000.0
 
 	if err != nil {
+		slog.Error("model inference failed", "err", err, "transaction_id", req.TransactionID)
 		http.Error(w, "model inference failed", http.StatusInternalServerError)
 		return
 	}
@@ -112,18 +117,21 @@ func (h *Handler) Score(w http.ResponseWriter, r *http.Request) {
 	}
 	metrics.PredictionsTotal.WithLabelValues(outcome).Inc()
 
+	predictionID := uuid.New()
 	resp := scoreResponse{
 		TransactionID:    req.TransactionID,
+		PredictionID:     predictionID.String(),
 		FraudProbability: fraudProb,
 		Flagged:          flagged,
 		ModelVersion:     h.modelRunner.ModelVersion(),
 	}
 	writeJSON(w, http.StatusOK, resp)
 
-	// Async log - do not block response
+	h.logWg.Add(1)
 	go func() {
+		defer h.logWg.Done()
 		_ = h.store.Log(context.Background(), predictions.Record{
-			PredictionID:     uuid.New(),
+			PredictionID:     predictionID,
 			TransactionID:    req.TransactionID,
 			ModelVersion:     h.modelRunner.ModelVersion(),
 			FraudProbability: fraudProb,
@@ -136,6 +144,9 @@ func (h *Handler) Score(w http.ResponseWriter, r *http.Request) {
 		})
 	}()
 }
+
+// Must be called before store.Shutdown() to avoid orphaning buffered log records.
+func (h *Handler) Drain() { h.logWg.Wait() }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")

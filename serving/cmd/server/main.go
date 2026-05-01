@@ -102,6 +102,7 @@ func main() {
 		slog.Error("http shutdown error", "err", err)
 	}
 
+	handler.Drain()
 	store.Shutdown()
 	pool.Close()
 	runner.Destroy()
