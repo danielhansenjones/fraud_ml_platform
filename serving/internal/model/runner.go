@@ -54,11 +54,23 @@ func NewRunner(modelPath, featureOrderPath string) (*Runner, error) {
 		return nil, fmt.Errorf("create onnx session: %w", err)
 	}
 
-	return &Runner{
+	r := &Runner{
 		session:      session,
 		featureOrder: featureOrder,
 		modelVersion: modelVersion,
-	}, nil
+	}
+
+	// Catch feature_order.json / model mismatch at startup, not on the first live request.
+	zeroMap := make(map[string]float32, len(featureOrder))
+	for _, name := range featureOrder {
+		zeroMap[name] = 0
+	}
+	if _, _, err := r.Score(context.Background(), zeroMap); err != nil {
+		r.Destroy()
+		return nil, fmt.Errorf("startup validation: model rejected %d-feature input from %s: %w", len(featureOrder), featureOrderPath, err)
+	}
+
+	return r, nil
 }
 
 func (r *Runner) Score(ctx context.Context, featureMap map[string]float32) (float32, string, error) {
@@ -103,7 +115,6 @@ func (r *Runner) Score(ctx context.Context, featureMap map[string]float32) (floa
 	}
 
 	probs := probTensor.GetData()
-	// probs[0] = P(class=0), probs[1] = P(class=1)
 	fraudProb := probs[1]
 	return fraudProb, hash, nil
 }
