@@ -71,7 +71,9 @@ def parity_check(
     n_samples: int = 1000,
     tolerance: float = 1e-5,
 ) -> dict[str, float]:
-    X_sample = X.head(n_samples).copy().fillna(0).astype(np.float32)
+    # Keep NaN to exercise the missing branches; XGBoost and ORT both honor them
+    # via TreeEnsembleClassifier missing_tracks_true attributes.
+    X_sample = X.head(n_samples).copy().astype(np.float32)
 
     native_probs = clf.predict_proba(X_sample)[:, 1]
 

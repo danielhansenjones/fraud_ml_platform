@@ -8,8 +8,7 @@ import xgboost as xgb
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import roc_auc_score
 
-
-EXCLUDE_COLS = {"TransactionDT", "TransactionID", "isFraud", "day"}
+from training.src.constants import EXCLUDE_FROM_FEATURES as EXCLUDE_COLS
 
 
 def _xgb_device() -> str:
@@ -35,8 +34,6 @@ def run_adversarial_validation(
 
     X = pd.concat([train_X, test_X], ignore_index=True)
     y = np.array([1] * len(train_X) + [0] * len(test_X))
-
-    X = X.fillna(-1)
 
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     aucs = []

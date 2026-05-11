@@ -11,9 +11,9 @@ from training.src.baselines import (
     run_random_forest,
     run_xgboost_untuned,
 )
+from training.src.constants import EXCLUDE_FROM_FEATURES
 
 ARTIFACTS = Path("training/artifacts")
-EXCLUDE_FROM_FEATURES = {"TransactionID", "TransactionDT", "isFraud", "day"}
 
 
 def _load_features(train_df: pd.DataFrame, pruned_features: list[str]) -> tuple[pd.DataFrame, pd.Series, pd.Series]:

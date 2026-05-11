@@ -20,7 +20,7 @@ def main() -> None:
     clf.load_model(str(ARTIFACTS / "final_model.json"))
 
     test_df = pd.read_parquet(ARTIFACTS / "prep_test.parquet")
-    X_test = test_df[feature_cols].fillna(-1).astype("float32")
+    X_test = test_df[feature_cols].astype("float32")
 
     onnx_path = ARTIFACTS / "final_model.onnx"
     export_onnx(clf, feature_cols, onnx_path)

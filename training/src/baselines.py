@@ -121,7 +121,7 @@ def run_lightgbm(
     y: pd.Series,
     transaction_dt: pd.Series,
 ) -> dict[str, dict[str, float]]:
-    X_fill = X.fillna(-1)
+    # LightGBM has native NaN handling; matches the final training and serving policy.
     pos = y.sum()
     neg = len(y) - pos
     clf = lgb.LGBMClassifier(
@@ -135,7 +135,7 @@ def run_lightgbm(
         random_state=42,
         verbosity=-1,
     )
-    return _cv_scores(clf, X_fill, y, transaction_dt)
+    return _cv_scores(clf, X, y, transaction_dt)
 
 
 def run_xgboost_untuned(
@@ -143,7 +143,6 @@ def run_xgboost_untuned(
     y: pd.Series,
     transaction_dt: pd.Series,
 ) -> dict[str, dict[str, float]]:
-    X_fill = X.fillna(-1)
     pos = y.sum()
     neg = len(y) - pos
     clf = xgb.XGBClassifier(
@@ -159,4 +158,4 @@ def run_xgboost_untuned(
         random_state=42,
         verbosity=0,
     )
-    return _cv_scores(clf, X_fill, y, transaction_dt)
+    return _cv_scores(clf, X, y, transaction_dt)

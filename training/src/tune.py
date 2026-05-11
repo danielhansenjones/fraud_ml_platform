@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import optuna
 import pandas as pd
@@ -7,6 +9,10 @@ import xgboost as xgb
 from sklearn.metrics import average_precision_score
 
 from training.src.splits import PurgedTimeSeriesSplit
+
+
+def _xgb_device() -> str:
+    return os.environ.get("XGB_DEVICE", "cuda")
 
 
 def _objective(
@@ -41,7 +47,7 @@ def _objective(
 
         clf = xgb.XGBClassifier(
             tree_method="hist",
-            device="cuda",
+            device=_xgb_device(),
             eval_metric="aucpr",
             scale_pos_weight=scale_pos_weight,
             early_stopping_rounds=20,

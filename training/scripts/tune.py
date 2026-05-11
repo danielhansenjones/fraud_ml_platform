@@ -7,13 +7,13 @@ import matplotlib.pyplot as plt
 import optuna
 import pandas as pd
 
+from training.src.constants import EXCLUDE_FROM_FEATURES
 from training.src.tune import create_or_load_study, run_study
 
 ARTIFACTS = Path("training/artifacts")
 OPTUNA_DIR = Path("training/optuna")
 PLOTS = ARTIFACTS / "plots"
 N_TRIALS = 200
-EXCLUDE_FROM_FEATURES = {"TransactionID", "TransactionDT", "isFraud", "day"}
 
 
 def main() -> None:
@@ -31,7 +31,8 @@ def main() -> None:
         and c not in EXCLUDE_FROM_FEATURES
         and train_df[c].dtype.name != "category"
     ]
-    X = train_df[feature_cols].fillna(-1)
+    # Keep NaN; XGBoost has native missing handling. See evaluate.py for rationale.
+    X = train_df[feature_cols]
     y = train_df["isFraud"]
     dt = train_df["TransactionDT"]
 

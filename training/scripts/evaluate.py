@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import pickle
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -10,6 +9,7 @@ import pandas as pd
 import shap
 from sklearn.calibration import calibration_curve
 
+from training.src.constants import EXCLUDE_FROM_FEATURES
 from training.src.evaluate import (
     calibrate,
     compute_metrics,
@@ -19,7 +19,6 @@ from training.src.train import fit_xgboost
 
 ARTIFACTS = Path("training/artifacts")
 PLOTS = ARTIFACTS / "plots"
-EXCLUDE_FROM_FEATURES = {"TransactionID", "TransactionDT", "isFraud", "day"}
 NAMED_FEATURES = {"TransactionAmt", "TransactionAmt_log", "TransactionAmt_decimal",
                   "card1", "card2", "card3", "card4", "card5", "card6",
                   "addr1", "addr2", "P_emaildomain", "R_emaildomain",
@@ -50,11 +49,14 @@ def main() -> None:
     tr = train_df.iloc[:val_start]
     val = train_df.iloc[val_start:]
 
-    X_tr = tr[feature_cols].fillna(-1).astype("float32")
+    # XGBoost handles NaN natively; the resulting ONNX TreeEnsembleClassifier
+    # carries that branch metadata and ORT routes NaN through the same path at
+    # inference. Filling here would create a train-serve skew with features/client.go.
+    X_tr = tr[feature_cols].astype("float32")
     y_tr = tr["isFraud"]
-    X_val = val[feature_cols].fillna(-1).astype("float32")
+    X_val = val[feature_cols].astype("float32")
     y_val = val["isFraud"]
-    X_test = test_df[feature_cols].fillna(-1).astype("float32")
+    X_test = test_df[feature_cols].astype("float32")
     y_test = test_df["isFraud"]
 
     print(f"Train: {len(X_tr)}, Val: {len(X_val)}, Test: {len(X_test)}")
@@ -70,10 +72,11 @@ def main() -> None:
     metrics_uncal = compute_metrics(y_test.values, test_probs_uncal, threshold)
     print("Uncalibrated test metrics:", metrics_uncal)
 
+    # Calibration is computed in-memory only: the export pipeline serves the
+    # uncalibrated model (see README "Calibration negative result"). Persisting
+    # the calibrator to disk would invite a future caller to load the wrong
+    # artifact.
     cal_clf = calibrate(clf, X_val, y_val)
-    with open(ARTIFACTS / "final_model_calibrated.pkl", "wb") as f:
-        pickle.dump(cal_clf, f)
-
     test_probs_cal = cal_clf.predict_proba(X_test)[:, 1]
     metrics_cal = compute_metrics(y_test.values, test_probs_cal, threshold)
     print("Calibrated test metrics:", metrics_cal)
