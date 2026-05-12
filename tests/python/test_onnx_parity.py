@@ -22,7 +22,9 @@ def test_onnx_parity():
         feature_order = json.load(f)
 
     test_df = pd.read_parquet(ARTIFACTS / "prep_test.parquet")
-    X = test_df[feature_order].fillna(0).head(1000).astype(np.float32)
+    # NaN flows through to exercise the missing-branch routing in the booster
+    # and in TreeEnsembleClassifier; serving emits NaN for missing features.
+    X = test_df[feature_order].head(1000).astype(np.float32)
 
     clf = xgb.XGBClassifier()
     clf.load_model(str(ARTIFACTS / "final_model.json"))

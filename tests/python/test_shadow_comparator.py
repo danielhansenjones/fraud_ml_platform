@@ -101,14 +101,24 @@ def test_n_comparisons_matches_row_count():
     assert result["n_comparisons"] == 200
 
 
-def test_idempotent_inserts_new_row_each_call():
+def test_summary_id_is_deterministic_per_window():
+    """Re-running the comparator on the same window must produce the same
+    summary_id so the INSERT ... ON CONFLICT no-ops instead of duplicating.
+    Mirrors the drift detector's idempotency contract.
+    """
     rows = _make_rows(50)
     pool = _make_pool(rows)
     result1 = compute_shadow_summary(pool, window_hours=1)
     result2 = compute_shadow_summary(pool, window_hours=1)
     assert result1 is not None
     assert result2 is not None
-    assert result1["summary_id"] != result2["summary_id"]
+    # Two back-to-back calls fall into different microsecond windows, so a
+    # direct id1 == id2 check cannot prove determinism. Recompute the recipe
+    # directly against the first window's timestamps instead.
+    import hashlib, uuid as _uuid
+    key = f"{result1['window_start'].isoformat()}|{result1['window_end'].isoformat()}"
+    expected = str(_uuid.UUID(hashlib.md5(key.encode()).hexdigest()))
+    assert result1["summary_id"] == expected
 
 
 def test_single_row_no_crash():
