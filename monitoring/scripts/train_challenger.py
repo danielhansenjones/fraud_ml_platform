@@ -11,6 +11,8 @@ import optuna
 import pandas as pd
 from sklearn.metrics import average_precision_score, brier_score_loss
 
+from monitoring.common.encoding import encode_categoricals
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
@@ -23,20 +25,6 @@ OPTUNA_DIR = ROOT / "training" / "optuna"
 OPTUNA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def encode_categoricals(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
-    """LightGBM handles pandas category dtype natively, but onnxmltools ONNX export
-    does not represent categorical splits correctly - inference diverges from the native
-    booster. Encoding to integer codes before training keeps the ONNX model aligned.
-    """
-    df = df.copy()
-    mappings = {}
-    for col in df.columns:
-        if hasattr(df[col], "cat"):
-            mappings[col] = {str(i): str(v) for i, v in enumerate(df[col].cat.categories)}
-            df[col] = df[col].cat.codes.astype("float32")
-    return df, mappings
-
-
 def load_data():
     train_df = pd.read_parquet(ARTIFACTS / "prep_train.parquet")
     test_df = pd.read_parquet(ARTIFACTS / "prep_test.parquet")
@@ -45,7 +33,7 @@ def load_data():
     target = "isFraud"
 
     train_enc, cat_mappings = encode_categoricals(train_df[feature_cols + [target]])
-    test_enc, _ = encode_categoricals(test_df[feature_cols + [target]])
+    test_enc, _ = encode_categoricals(test_df[feature_cols + [target]], mappings=cat_mappings)
     (CHALLENGER_DIR / "lgbm_category_mappings.json").write_text(json.dumps(cat_mappings, indent=2))
 
     val_start = int(len(train_enc) * 0.9)
@@ -128,10 +116,15 @@ def main() -> None:
     (CHALLENGER_DIR / "lgbm_results.json").write_text(json.dumps(results, indent=2))
     log.info("test PR-AUC=%.4f brier=%.4f", pr_auc, brier)
 
-    _export_onnx(final_model, feature_cols)
+    _export_onnx(final_model, feature_cols, cat_mappings=_load_cat_mappings())
 
 
-def _export_onnx(model, feature_cols: list[str]) -> None:
+def _load_cat_mappings() -> dict:
+    path = CHALLENGER_DIR / "lgbm_category_mappings.json"
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def _export_onnx(model, feature_cols: list[str], cat_mappings: dict | None = None) -> None:
     try:
         from onnxmltools import convert_lightgbm
         from onnxmltools.convert.common.data_types import FloatTensorType
@@ -174,8 +167,10 @@ def _export_onnx(model, feature_cols: list[str]) -> None:
         import onnxruntime as ort
 
         sess = ort.InferenceSession(str(onnx_path))
-        sample_raw = pd.read_parquet(ARTIFACTS / "prep_test.parquet").head(100)
-        sample_enc, _ = encode_categoricals(sample_raw[feature_cols])
+        sample_raw = pd.read_parquet(ARTIFACTS / "prep_test.parquet").head(1000)
+        # Apply the train-time category mappings; a fresh per-sample encoding would
+        # produce different integer codes than the trained model expects.
+        sample_enc, _ = encode_categoricals(sample_raw[feature_cols], mappings=cat_mappings or {})
         x = sample_enc.values.astype(np.float32)
 
         probs_lgbm = model.predict_proba(sample_enc)[:, 1]

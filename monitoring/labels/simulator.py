@@ -29,6 +29,9 @@ def simulate_label_arrivals(
     """
     now = datetime.now(tz=timezone.utc)
 
+    # Pull unlabeled predictions and filter to known IDs in Python instead of
+    # shipping the full ground_truth keyset (potentially 500k+ ints) as a SQL
+    # parameter on every interval.
     with db_pool.connection() as conn:
         rows = conn.execute(
             """
@@ -36,10 +39,9 @@ def simulate_label_arrivals(
             FROM predictions p
             LEFT JOIN labels l ON l.transaction_id = p.transaction_id
             WHERE l.transaction_id IS NULL
-              AND p.transaction_id = ANY(%s)
             LIMIT %s
             """,
-            (list(ground_truth.keys()), max_inserts_per_run * 2),
+            (max_inserts_per_run * 5,),
         ).fetchall()
 
     if not rows:

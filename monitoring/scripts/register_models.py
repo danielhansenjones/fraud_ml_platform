@@ -18,6 +18,51 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def upsert_model(
+    conn: psycopg.Connection,
+    version: str,
+    path: str,
+    sha: str,
+    role: str,
+    notes: str,
+) -> None:
+    row = conn.execute(
+        "SELECT role FROM models WHERE model_version = %s", (version,)
+    ).fetchone()
+
+    if row is None:
+        conn.execute(
+            "INSERT INTO models (model_version, model_path, onnx_sha256, role, notes) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (version, path, sha, role, notes),
+        )
+        log.info("inserted %s %s", role, version[:16])
+        return
+
+    current_role = row[0]
+    if current_role == role:
+        log.info("%s %s already current, skipping", role, version[:16])
+        return
+
+    if current_role == "retired":
+        # Re-promoting a retired version masks an audit-trail incident: the
+        # original retirement was a deliberate action; silently flipping it
+        # back during a re-run of register_models is exactly the kind of
+        # "blind idempotency" the senior review flagged. Force an explicit
+        # path (manual UPDATE) instead.
+        raise RuntimeError(
+            f"refusing to promote retired model {version[:16]} to {role}; "
+            "to re-promote, run an explicit UPDATE on the models table"
+        )
+
+    conn.execute(
+        "UPDATE models SET role=%s, model_path=%s, onnx_sha256=%s, notes=%s "
+        "WHERE model_version=%s",
+        (role, path, sha, notes, version),
+    )
+    log.info("updated %s %s -> %s", current_role, version[:16], role)
+
+
 def main() -> None:
     dsn = os.environ.get("POSTGRES_DSN", "postgresql://fraud:fraud@localhost:5432/fraud")
 
@@ -32,8 +77,8 @@ def main() -> None:
     champ_sha = sha256(champion_onnx)
     chall_sha = sha256(challenger_onnx)
 
-    champ_version = champ_sha[:16]
-    chall_version = chall_sha[:16]
+    champ_version = champ_sha
+    chall_version = chall_sha
 
     try:
         conn = psycopg.connect(dsn)
@@ -42,36 +87,31 @@ def main() -> None:
             f"Cannot connect to Postgres ({dsn}). "
             "Start it first: docker compose up -d postgres"
         ) from exc
+
     try:
         with conn.transaction():
-            conn.execute(
-                """
-                INSERT INTO models (model_version, model_path, onnx_sha256, role, notes)
-                VALUES (%s, %s, %s, 'champion', 'XGBoost v1, phase 1 baseline')
-                ON CONFLICT (model_version) DO UPDATE SET
-                    role = EXCLUDED.role,
-                    onnx_sha256 = EXCLUDED.onnx_sha256,
-                    model_path = EXCLUDED.model_path,
-                    notes = EXCLUDED.notes
-                """,
-                (champ_version, "/app/artifacts/final_model.onnx", champ_sha),
+            upsert_model(
+                conn,
+                champ_version,
+                "/app/artifacts/final_model.onnx",
+                champ_sha,
+                "champion",
+                "XGBoost v1, phase 1 baseline",
             )
-            # Only one row may carry role='challenger' at a time.
+            # Retire any older challenger row that is not the version we are
+            # about to register. Skip if it is already retired.
             conn.execute(
-                "UPDATE models SET role='retired', retired_at=NOW() WHERE role='challenger' AND model_version != %s",
+                "UPDATE models SET role='retired', retired_at=NOW() "
+                "WHERE role='challenger' AND model_version != %s",
                 (chall_version,),
             )
-            conn.execute(
-                """
-                INSERT INTO models (model_version, model_path, onnx_sha256, role, notes)
-                VALUES (%s, %s, %s, 'challenger', 'LightGBM v1, 200 Optuna trials')
-                ON CONFLICT (model_version) DO UPDATE SET
-                    role = EXCLUDED.role,
-                    onnx_sha256 = EXCLUDED.onnx_sha256,
-                    model_path = EXCLUDED.model_path,
-                    notes = EXCLUDED.notes
-                """,
-                (chall_version, "/app/artifacts/challenger/lgbm_final_model.onnx", chall_sha),
+            upsert_model(
+                conn,
+                chall_version,
+                "/app/artifacts/challenger/lgbm_final_model.onnx",
+                chall_sha,
+                "challenger",
+                "LightGBM v1, 200 Optuna trials",
             )
     finally:
         conn.close()

@@ -40,6 +40,10 @@ def CanaryConfig() -> types.SimpleNamespace:
     return types.SimpleNamespace(
         postgres_dsn=_get("POSTGRES_DSN", "postgresql://fraud:fraud@localhost:5432/fraud"),
         router_url=_get("ROUTER_URL", "http://localhost:8081"),
+        champion_serving_url=_get("CHAMPION_SERVING_URL", "http://champion-model:8080"),
+        challenger_serving_url=_get("CHALLENGER_SERVING_URL", "http://challenger-model:8080"),
+        challenger_model_path=_get("CHALLENGER_MODEL_PATH", "/app/artifacts/challenger/lgbm_final_model.onnx"),
+        challenger_feature_order_path=_get("CHALLENGER_FEATURE_ORDER_PATH", "/app/artifacts/challenger/lgbm_onnx_feature_order.json"),
         admin_token=_get("ADMIN_TOKEN", ""),
         champion_version=_get("CHAMPION_VERSION", ""),
         challenger_version=_get("CHALLENGER_VERSION", ""),

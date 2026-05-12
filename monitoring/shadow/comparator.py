@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from psycopg_pool import ConnectionPool
+
+
+def _deterministic_summary_id(window_start: datetime, window_end: datetime) -> str:
+    """Stable UUID so re-runs of the same window are idempotent. Mirrors the
+    pattern used by drift/runner.py.
+    """
+    key = f"{window_start.isoformat()}|{window_end.isoformat()}"
+    return str(uuid.UUID(hashlib.md5(key.encode()).hexdigest()))
 
 
 def compute_shadow_summary(
@@ -36,7 +45,12 @@ def compute_shadow_summary(
 
     abs_diffs = np.abs(champ_probs - chall_probs)
     disagreement_rate = float(np.mean(champ_flags != chall_flags))
-    correlation = float(np.corrcoef(champ_probs, chall_probs)[0, 1]) if len(rows) > 1 else None
+    # corrcoef returns NaN when either input has zero variance; NaN in JSON
+    # breaks strict parsers downstream (Grafana, alert pipelines). Emit None.
+    if len(rows) > 1 and np.std(champ_probs) > 0 and np.std(chall_probs) > 0:
+        correlation = float(np.corrcoef(champ_probs, chall_probs)[0, 1])
+    else:
+        correlation = None
 
     tp = int(np.sum(champ_flags & chall_flags))
     fp = int(np.sum(~champ_flags & chall_flags))
@@ -44,7 +58,7 @@ def compute_shadow_summary(
     tn = int(np.sum(~champ_flags & ~chall_flags))
 
     summary = {
-        "summary_id": str(uuid.uuid4()),
+        "summary_id": _deterministic_summary_id(window_start, now),
         "window_start": window_start,
         "window_end": now,
         "n_comparisons": len(rows),
@@ -68,6 +82,7 @@ def compute_shadow_summary(
                       %(correlation)s, %(disagreement_rate)s,
                       %(abs_diff_p50)s, %(abs_diff_p95)s, %(abs_diff_p99)s,
                       %(confusion)s)
+            ON CONFLICT (summary_id) DO NOTHING
             """,
             {**summary, "confusion": json.dumps(summary["confusion"])},
         )

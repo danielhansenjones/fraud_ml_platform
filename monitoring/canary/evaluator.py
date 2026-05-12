@@ -17,12 +17,18 @@ class ModelMetrics:
     roc_auc: float
     brier_score: float
     flag_rate: float
-    p95_latency_ms: float
+    p95_total_ms: float  # end-to-end serving (Redis lookup + inference + JSON)
 
 
 @dataclass
 class CanaryDecision:
-    decision: Literal["promote", "rollback", "continue", "extend"]
+    decision: Literal["promote", "rollback", "continue"]
+    # outcome distinguishes the *reason* the decision was reached. This is what
+    # _count_consecutive_improvements reads to detect sustained improvement;
+    # using `decision` alone conflates "no data" with "no signal" with "improving".
+    outcome: Literal[
+        "improving", "no_signal", "insufficient_data", "inactive", "rollback", "promoted"
+    ]
     reason: str
     metrics: dict
     window_start: datetime
@@ -31,7 +37,7 @@ class CanaryDecision:
 
 
 def _compute_metrics(
-    y_true: np.ndarray, y_prob: np.ndarray, y_flag: np.ndarray, y_latency_ms: np.ndarray
+    y_true: np.ndarray, y_prob: np.ndarray, y_flag: np.ndarray, y_total_ms: np.ndarray
 ) -> ModelMetrics:
     return ModelMetrics(
         n_predictions=len(y_true),
@@ -39,7 +45,7 @@ def _compute_metrics(
         roc_auc=float(roc_auc_score(y_true, y_prob)),
         brier_score=float(brier_score_loss(y_true, y_prob)),
         flag_rate=float(y_flag.mean()),
-        p95_latency_ms=float(np.percentile(y_latency_ms, 95)),
+        p95_total_ms=float(np.percentile(y_total_ms, 95)),
     )
 
 
@@ -49,11 +55,15 @@ def evaluate_canary(
     challenger_version: str,
     window_hours: int,
     config,
-    prior_decisions: list[str] | None = None,
+    prior_outcomes: list[str] | None = None,
 ) -> CanaryDecision:
-    """prior_decisions: recent decision values for the consecutive-run promotion check.
-    If None, queries the DB.
+    """prior_outcomes: recent `outcome` values for the consecutive-run promotion
+    check. If None, queries the DB.
     """
+    # `now` is wall-clock, used as both the window-end and the label-availability
+    # cutoff. Production runs the evaluator forward only, so this is fine.
+    # Deterministic backfills/replay would need an `as_of` parameter threaded
+    # through here instead of reading the clock.
     now = datetime.now(tz=timezone.utc)
     window_start = now - timedelta(hours=window_hours)
     window_end = now
@@ -91,6 +101,7 @@ def evaluate_canary(
         }
         return CanaryDecision(
             decision="continue",
+            outcome="insufficient_data",
             reason="insufficient_data",
             metrics=metrics_payload,
             window_start=window_start,
@@ -110,7 +121,7 @@ def evaluate_canary(
             "roc_auc": champ_m.roc_auc,
             "brier_score": champ_m.brier_score,
             "flag_rate": champ_m.flag_rate,
-            "p95_latency_ms": champ_m.p95_latency_ms,
+            "p95_total_ms": champ_m.p95_total_ms,
         },
         "challenger": {
             "n": chall_m.n_predictions,
@@ -118,7 +129,7 @@ def evaluate_canary(
             "roc_auc": chall_m.roc_auc,
             "brier_score": chall_m.brier_score,
             "flag_rate": chall_m.flag_rate,
-            "p95_latency_ms": chall_m.p95_latency_ms,
+            "p95_total_ms": chall_m.p95_total_ms,
         },
     }
 
@@ -128,6 +139,7 @@ def evaluate_canary(
     if pr_delta < -config.canary_pr_auc_rollback_delta:
         return CanaryDecision(
             decision="rollback",
+            outcome="rollback",
             reason=f"challenger pr_auc worse by {abs(pr_delta):.4f} (threshold {config.canary_pr_auc_rollback_delta})",
             metrics=metrics_payload,
             window_start=window_start,
@@ -137,20 +149,22 @@ def evaluate_canary(
     if brier_delta > config.canary_brier_rollback_delta:
         return CanaryDecision(
             decision="rollback",
+            outcome="rollback",
             reason=f"challenger brier_score worse by {brier_delta:.4f} (threshold {config.canary_brier_rollback_delta})",
             metrics=metrics_payload,
             window_start=window_start,
             window_end=window_end,
         )
 
-    if champ_m.p95_latency_ms > 0:
-        latency_ratio = chall_m.p95_latency_ms / champ_m.p95_latency_ms
+    if champ_m.p95_total_ms > 0:
+        latency_ratio = chall_m.p95_total_ms / champ_m.p95_total_ms
         if latency_ratio > config.canary_latency_p95_rollback_ratio:
             return CanaryDecision(
                 decision="rollback",
+                outcome="rollback",
                 reason=(
-                    f"challenger p95 latency {chall_m.p95_latency_ms:.1f}ms is "
-                    f"{latency_ratio:.1f}x champion ({champ_m.p95_latency_ms:.1f}ms)"
+                    f"challenger p95 total {chall_m.p95_total_ms:.1f}ms is "
+                    f"{latency_ratio:.1f}x champion ({champ_m.p95_total_ms:.1f}ms)"
                 ),
                 metrics=metrics_payload,
                 window_start=window_start,
@@ -159,19 +173,29 @@ def evaluate_canary(
 
     if pr_delta > config.canary_pr_auc_promote_delta:
         consecutive = _count_consecutive_improvements(
-            db_pool, champion_version, challenger_version, pr_delta, prior_decisions
+            db_pool, champion_version, challenger_version, prior_outcomes
         )
         if consecutive >= config.canary_required_consecutive_runs - 1:
             return CanaryDecision(
                 decision="promote",
+                outcome="promoted",
                 reason=f"challenger pr_auc better by {pr_delta:.4f} for {consecutive + 1} consecutive runs",
                 metrics=metrics_payload,
                 window_start=window_start,
                 window_end=window_end,
             )
+        return CanaryDecision(
+            decision="continue",
+            outcome="improving",
+            reason=f"challenger pr_auc better by {pr_delta:.4f}; {consecutive + 1}/{config.canary_required_consecutive_runs} consecutive runs",
+            metrics=metrics_payload,
+            window_start=window_start,
+            window_end=window_end,
+        )
 
     return CanaryDecision(
         decision="continue",
+        outcome="no_signal",
         reason="no_clear_signal",
         metrics=metrics_payload,
         window_start=window_start,
@@ -183,13 +207,16 @@ def _count_consecutive_improvements(
     db_pool: ConnectionPool,
     champion_version: str,
     challenger_version: str,
-    current_delta: float,
-    prior_decisions: list[str] | None,
+    prior_outcomes: list[str] | None,
 ) -> int:
-    if prior_decisions is not None:
+    """Reads `outcome` rather than `decision` because 'improving',
+    'insufficient_data', 'inactive', and 'no_signal' all share the 'continue'
+    decision label; only 'improving' should accumulate toward promotion.
+    """
+    if prior_outcomes is not None:
         count = 0
-        for d in reversed(prior_decisions):
-            if d == "continue":
+        for o in reversed(prior_outcomes):
+            if o == "improving":
                 count += 1
             else:
                 break
@@ -198,7 +225,7 @@ def _count_consecutive_improvements(
     with db_pool.connection() as conn:
         rows = conn.execute(
             """
-            SELECT decision FROM canary_decisions
+            SELECT outcome FROM canary_decisions
             WHERE champion_version = %s AND challenger_version = %s
             ORDER BY created_at DESC
             LIMIT 10
@@ -207,8 +234,8 @@ def _count_consecutive_improvements(
         ).fetchall()
 
     count = 0
-    for (d,) in rows:
-        if d == "continue":
+    for (o,) in rows:
+        if o == "improving":
             count += 1
         else:
             break
