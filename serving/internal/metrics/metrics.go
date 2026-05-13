@@ -37,6 +37,17 @@ var (
 		Name: "prediction_log_flush_errors_total",
 		Help: "Total prediction log flush errors",
 	})
+	PredictionLogDropped = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "prediction_log_dropped_total",
+		Help: "Predictions dropped because the log buffer was full",
+	})
+	FeatureLookupErrors = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "feature_lookup_errors_total",
+			Help: "Feature lookup failures by reason",
+		},
+		[]string{"reason"},
+	)
 )
 
 func Register(reg *prometheus.Registry) {
@@ -48,5 +59,7 @@ func Register(reg *prometheus.Registry) {
 		ModelInferenceDuration,
 		PredictionLogBufferSize,
 		PredictionLogFlushErrors,
+		PredictionLogDropped,
+		FeatureLookupErrors,
 	)
 }

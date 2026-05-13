@@ -2,11 +2,13 @@ package predictions
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/silentwraith/fraud_ml_platform/serving/internal/metrics"
 )
@@ -24,13 +26,19 @@ type Record struct {
 	CreatedAt        time.Time
 }
 
+const (
+	defaultRetryBackoff = 200 * time.Millisecond
+	drainChunkSize      = 1000
+)
+
 type Store struct {
 	pool          *pgxpool.Pool
 	ch            chan Record
 	flushInterval time.Duration
+	retryBackoff  time.Duration
 	done          chan struct{}
 	wg            sync.WaitGroup
-	flushFn       func([]Record)
+	flushFn       func([]Record) error
 }
 
 func NewStore(pool *pgxpool.Pool, bufferSize int, flushIntervalMs int) *Store {
@@ -38,6 +46,7 @@ func NewStore(pool *pgxpool.Pool, bufferSize int, flushIntervalMs int) *Store {
 		pool:          pool,
 		ch:            make(chan Record, bufferSize),
 		flushInterval: time.Duration(flushIntervalMs) * time.Millisecond,
+		retryBackoff:  defaultRetryBackoff,
 		done:          make(chan struct{}),
 	}
 	s.flushFn = s.flushPostgres
@@ -46,15 +55,24 @@ func NewStore(pool *pgxpool.Pool, bufferSize int, flushIntervalMs int) *Store {
 	return s
 }
 
+// ErrBufferFull is returned by Log when the prediction buffer cannot accept
+// the record. The caller should record a metric and continue; the score
+// response has already been sent to the client.
+var ErrBufferFull = errors.New("prediction log buffer full")
+
 func (s *Store) Log(ctx context.Context, r Record) error {
 	metrics.PredictionLogBufferSize.Set(float64(len(s.ch)))
 	select {
 	case s.ch <- r:
 		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	default:
-		// Buffer full; flush synchronously to avoid losing data
-		s.flushFn([]Record{r})
-		return nil
+		// Drop on overflow rather than amplify load by spawning synchronous DB
+		// flushes from the request path. Better to lose a few audit rows than
+		// exhaust pgxpool under sustained overload.
+		metrics.PredictionLogDropped.Inc()
+		return ErrBufferFull
 	}
 }
 
@@ -70,18 +88,22 @@ func (s *Store) flusher() {
 			batch = append(batch, r)
 		case <-ticker.C:
 			if len(batch) > 0 {
-				s.flushFn(batch)
+				s.flushWithRetry(batch)
 				batch = batch[:0]
 			}
 		case <-s.done:
-			// Drain remaining
+			// Drain in chunks so a large backlog isn't sent as one giant batch.
 			for {
 				select {
 				case r := <-s.ch:
 					batch = append(batch, r)
+					if len(batch) >= drainChunkSize {
+						s.flushWithRetry(batch)
+						batch = batch[:0]
+					}
 				default:
 					if len(batch) > 0 {
-						s.flushFn(batch)
+						s.flushWithRetry(batch)
 					}
 					return
 				}
@@ -90,39 +112,41 @@ func (s *Store) flusher() {
 	}
 }
 
-func (s *Store) flushPostgres(batch []Record) {
+func (s *Store) flushWithRetry(batch []Record) {
+	err := s.flushFn(batch)
+	if err == nil {
+		return
+	}
+	slog.Warn("prediction flush failed, retrying once", "err", err, "n", len(batch))
+	time.Sleep(s.retryBackoff)
+	if err := s.flushFn(batch); err != nil {
+		metrics.PredictionLogFlushErrors.Inc()
+		slog.Error("prediction flush failed after retry; batch dropped", "err", err, "n", len(batch))
+	}
+}
+
+func (s *Store) flushPostgres(batch []Record) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		slog.Error("prediction flush: begin tx", "err", err)
-		metrics.PredictionLogFlushErrors.Inc()
-		return
-	}
-	defer tx.Rollback(ctx)
-
-	const q = `INSERT INTO predictions
-		(prediction_id, transaction_id, model_version, fraud_probability, flagged,
-		 features_hash, feature_lookup_ms, model_inference_ms, total_ms, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`
-
-	for _, r := range batch {
-		if _, err := tx.Exec(ctx, q,
-			r.PredictionID, r.TransactionID, r.ModelVersion, r.FraudProbability,
-			r.Flagged, r.FeaturesHash, r.FeatureLookupMs, r.ModelInferenceMs,
-			r.TotalMs, r.CreatedAt,
-		); err != nil {
-			slog.Error("prediction flush: insert", "err", err)
-			metrics.PredictionLogFlushErrors.Inc()
-			return
-		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		slog.Error("prediction flush: commit", "err", err)
-		metrics.PredictionLogFlushErrors.Inc()
-	}
+	_, err := s.pool.CopyFrom(
+		ctx,
+		pgx.Identifier{"predictions"},
+		[]string{
+			"prediction_id", "transaction_id", "model_version",
+			"fraud_probability", "flagged", "features_hash",
+			"feature_lookup_ms", "model_inference_ms", "total_ms", "created_at",
+		},
+		pgx.CopyFromSlice(len(batch), func(i int) ([]any, error) {
+			r := batch[i]
+			return []any{
+				r.PredictionID, r.TransactionID, r.ModelVersion,
+				r.FraudProbability, r.Flagged, r.FeaturesHash,
+				r.FeatureLookupMs, r.ModelInferenceMs, r.TotalMs, r.CreatedAt,
+			}, nil
+		}),
+	)
+	return err
 }
 
 // Shutdown signals the flusher to drain and waits for it to complete.

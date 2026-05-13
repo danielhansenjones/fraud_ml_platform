@@ -3,6 +3,7 @@ package features
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -30,7 +31,9 @@ func TestGet_Found(t *testing.T) {
 	require.NoError(t, err)
 	assert.InDelta(t, float32(1.5), got["f1"], 1e-6)
 	assert.InDelta(t, float32(-0.3), got["f2"], 1e-6)
-	assert.Equal(t, float32(0), got["f3"]) // nil -> 0
+	// nil and JSON null map to NaN so the ONNX TreeEnsembleClassifier follows
+	// the same missing-branch routing the booster learned during training.
+	assert.True(t, math.IsNaN(float64(got["f3"])), "nil should map to NaN, got %v", got["f3"])
 }
 
 func TestGet_NotFound(t *testing.T) {
@@ -55,4 +58,29 @@ func TestGet_InvalidJSON(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.NotErrorIs(t, err, ErrNotFound)
+}
+
+func TestSampleFeatureNames_Found(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	raw := map[string]interface{}{"f1": 1.0, "f2": 2.0, "f3": nil}
+	b, _ := json.Marshal(raw)
+	mr.Set("fraud:features:42", string(b))
+
+	c := newTestClient(mr.Addr())
+	names, err := c.SampleFeatureNames(context.Background())
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"f1", "f2", "f3"}, names)
+}
+
+func TestSampleFeatureNames_NoKeys(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	c := newTestClient(mr.Addr())
+	_, err = c.SampleFeatureNames(context.Background())
+	assert.ErrorIs(t, err, ErrNotFound)
 }

@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"sync"
 	"time"
@@ -24,37 +26,85 @@ type ModelScorer interface {
 	ModelVersion() string
 }
 
+type ModelReloader interface {
+	Reload(modelPath, featureOrderPath string) (string, error)
+}
+
 type PredictionLogger interface {
 	Log(ctx context.Context, r predictions.Record) error
 }
 
+type Pinger interface {
+	Ping(ctx context.Context) error
+}
+
 type Handler struct {
-	featureClient FeatureGetter
-	modelRunner   ModelScorer
-	store         PredictionLogger
-	threshold     float64
-	logWg         sync.WaitGroup
+	featureClient  FeatureGetter
+	modelRunner    ModelScorer
+	reloader       ModelReloader
+	store          PredictionLogger
+	redisPinger    Pinger
+	postgresPinger Pinger
+	threshold      float64
+	adminToken     string
+	logWg          sync.WaitGroup
 }
 
 func NewHandler(
 	featureClient FeatureGetter,
 	modelRunner ModelScorer,
+	reloader ModelReloader,
 	store PredictionLogger,
+	redisPinger, postgresPinger Pinger,
 	threshold float64,
+	adminToken string,
 ) *Handler {
 	return &Handler{
-		featureClient: featureClient,
-		modelRunner:   modelRunner,
-		store:         store,
-		threshold:     threshold,
+		featureClient:  featureClient,
+		modelRunner:    modelRunner,
+		reloader:       reloader,
+		store:          store,
+		redisPinger:    redisPinger,
+		postgresPinger: postgresPinger,
+		threshold:      threshold,
+		adminToken:     adminToken,
 	}
 }
 
+type healthResponse struct {
+	Status       string `json:"status"`
+	ModelVersion string `json:"model_version"`
+	Redis        string `json:"redis"`
+	Postgres     string `json:"postgres"`
+}
+
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{
-		"status":        "ok",
-		"model_version": h.modelRunner.ModelVersion(),
-	})
+	ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+	defer cancel()
+
+	resp := healthResponse{
+		Status:       "ok",
+		ModelVersion: h.modelRunner.ModelVersion(),
+		Redis:        "ok",
+		Postgres:     "ok",
+	}
+	status := http.StatusOK
+
+	if h.redisPinger != nil {
+		if err := h.redisPinger.Ping(ctx); err != nil {
+			resp.Status = "unhealthy"
+			resp.Redis = "err: " + err.Error()
+			status = http.StatusServiceUnavailable
+		}
+	}
+	if h.postgresPinger != nil {
+		if err := h.postgresPinger.Ping(ctx); err != nil {
+			resp.Status = "unhealthy"
+			resp.Postgres = "err: " + err.Error()
+			status = http.StatusServiceUnavailable
+		}
+	}
+	writeJSON(w, status, resp)
 }
 
 type scoreRequest struct {
@@ -73,6 +123,7 @@ func (h *Handler) Score(w http.ResponseWriter, r *http.Request) {
 	totalStart := time.Now()
 
 	var req scoreRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TransactionID == 0 {
 		http.Error(w, "invalid request body: transaction_id required", http.StatusBadRequest)
 		return
@@ -85,10 +136,13 @@ func (h *Handler) Score(w http.ResponseWriter, r *http.Request) {
 	lookupMs := float64(time.Since(lookupStart).Microseconds()) / 1000.0
 
 	if errors.Is(err, features.ErrNotFound) {
+		metrics.FeatureLookupErrors.WithLabelValues("not_found").Inc()
 		http.Error(w, "transaction features not found", http.StatusNotFound)
 		return
 	}
 	if err != nil {
+		metrics.FeatureLookupErrors.WithLabelValues("redis_error").Inc()
+		slog.Error("feature lookup failed", "err", err, "transaction_id", req.TransactionID)
 		http.Error(w, "feature lookup failed", http.StatusInternalServerError)
 		return
 	}
@@ -105,9 +159,18 @@ func (h *Handler) Score(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fraudProb := float64(prob)
+	// NaN can leak from ORT on adversarial input. Refuse to write it: json.Encode
+	// would fail mid-response (truncated body, status 200) and the audit log
+	// would carry a non-comparable float into postgres.
+	if math.IsNaN(fraudProb) || math.IsInf(fraudProb, 0) {
+		slog.Error("model returned non-finite probability", "transaction_id", req.TransactionID, "prob", fraudProb)
+		http.Error(w, "model returned non-finite probability", http.StatusInternalServerError)
+		return
+	}
+
 	metrics.ModelInferenceDuration.Observe(inferMs / 1000.0)
 
-	fraudProb := float64(prob)
 	flagged := fraudProb >= h.threshold
 	totalMs := float64(time.Since(totalStart).Microseconds()) / 1000.0
 
@@ -130,7 +193,7 @@ func (h *Handler) Score(w http.ResponseWriter, r *http.Request) {
 	h.logWg.Add(1)
 	go func() {
 		defer h.logWg.Done()
-		_ = h.store.Log(context.Background(), predictions.Record{
+		err := h.store.Log(context.Background(), predictions.Record{
 			PredictionID:     predictionID,
 			TransactionID:    req.TransactionID,
 			ModelVersion:     h.modelRunner.ModelVersion(),
@@ -142,7 +205,47 @@ func (h *Handler) Score(w http.ResponseWriter, r *http.Request) {
 			TotalMs:          totalMs,
 			CreatedAt:        time.Now(),
 		})
+		if err != nil {
+			slog.Warn("prediction log dropped", "err", err, "prediction_id", predictionID)
+		}
 	}()
+}
+
+type reloadRequest struct {
+	ModelPath        string `json:"model_path"`
+	FeatureOrderPath string `json:"feature_order_path"`
+}
+
+type reloadResponse struct {
+	ModelVersion string `json:"model_version"`
+}
+
+func (h *Handler) Reload(w http.ResponseWriter, r *http.Request) {
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Admin-Token")), []byte(h.adminToken)) == 0 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req reloadRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.ModelPath == "" || req.FeatureOrderPath == "" {
+		http.Error(w, "model_path and feature_order_path are required", http.StatusBadRequest)
+		return
+	}
+
+	oldVersion := h.modelRunner.ModelVersion()
+	newVersion, err := h.reloader.Reload(req.ModelPath, req.FeatureOrderPath)
+	if err != nil {
+		slog.Error("model reload failed", "err", err, "model_path", req.ModelPath)
+		http.Error(w, "reload failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	slog.Info("model reloaded", "old_version", oldVersion, "new_version", newVersion, "model_path", req.ModelPath)
+	writeJSON(w, http.StatusOK, reloadResponse{ModelVersion: newVersion})
 }
 
 // Must be called before store.Shutdown() to avoid orphaning buffered log records.
@@ -151,5 +254,9 @@ func (h *Handler) Drain() { h.logWg.Wait() }
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		// Status line already sent; can't downgrade to 500. Log so the truncated
+		// body shows up somewhere.
+		slog.Warn("response body encode failed", "err", err, "status", status)
+	}
 }

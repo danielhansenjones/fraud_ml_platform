@@ -55,20 +55,22 @@ func main() {
 	}
 	slog.Info("postgres connected")
 
-	runner, err := model.NewRunner(cfg.ModelPath, cfg.FeatureOrderPath)
+	initial, err := model.NewRunner(cfg.ModelPath, cfg.FeatureOrderPath)
 	if err != nil {
 		slog.Error("model load failed", "err", err)
 		os.Exit(1)
 	}
+	runner := model.NewSwappable(initial, featClient)
 	slog.Info("model loaded", "version", runner.ModelVersion())
 
 	store := predictions.NewStore(pool, cfg.PredictionBufferSize, cfg.PredictionFlushInterval)
 
-	handler := srv.NewHandler(featClient, runner, store, cfg.FlagThreshold)
+	handler := srv.NewHandler(featClient, runner, runner, store, featClient, pool, cfg.FlagThreshold, cfg.AdminToken)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.Health)
 	mux.HandleFunc("POST /score", handler.Score)
+	mux.HandleFunc("POST /admin/reload", handler.Reload)
 	mux.Handle("GET /metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 
 	chain := srv.Recovery(srv.Logging(mux))

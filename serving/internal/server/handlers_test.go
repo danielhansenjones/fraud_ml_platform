@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -63,10 +64,31 @@ func (l *blockingLogger) Log(_ context.Context, _ predictions.Record) error {
 	return nil
 }
 
+type stubReloader struct {
+	called   bool
+	gotModel string
+	gotOrder string
+	newVer   string
+	err      error
+}
+
+func (s *stubReloader) Reload(modelPath, featureOrderPath string) (string, error) {
+	s.called = true
+	s.gotModel = modelPath
+	s.gotOrder = featureOrderPath
+	return s.newVer, s.err
+}
+
+type stubPinger struct{ err error }
+
+func (s *stubPinger) Ping(_ context.Context) error { return s.err }
+
+func okPinger() *stubPinger { return &stubPinger{} }
+
 // Tests
 
 func TestHealth_OK(t *testing.T) {
-	h := NewHandler(&stubGetter{}, &stubScorer{version: "abc123"}, &recordingLogger{logged: make(chan predictions.Record, 1)}, 0.5)
+	h := NewHandler(&stubGetter{}, &stubScorer{version: "abc123"}, &stubReloader{}, &recordingLogger{logged: make(chan predictions.Record, 1)}, okPinger(), okPinger(), 0.5, "tok")
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 	h.Health(w, req)
@@ -76,10 +98,34 @@ func TestHealth_OK(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.Equal(t, "ok", resp["status"])
 	assert.Equal(t, "abc123", resp["model_version"])
+	assert.Equal(t, "ok", resp["redis"])
+	assert.Equal(t, "ok", resp["postgres"])
+}
+
+func TestHealth_RedisDown(t *testing.T) {
+	h := NewHandler(&stubGetter{}, &stubScorer{version: "v1"}, &stubReloader{}, &recordingLogger{logged: make(chan predictions.Record, 1)},
+		&stubPinger{err: fmt.Errorf("redis timeout")}, okPinger(), 0.5, "tok")
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	h.Health(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	var resp map[string]string
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "unhealthy", resp["status"])
+	assert.Contains(t, resp["redis"], "redis timeout")
+}
+
+func TestHealth_PostgresDown(t *testing.T) {
+	h := NewHandler(&stubGetter{}, &stubScorer{version: "v1"}, &stubReloader{}, &recordingLogger{logged: make(chan predictions.Record, 1)},
+		okPinger(), &stubPinger{err: fmt.Errorf("connection refused")}, 0.5, "tok")
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	h.Health(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
 func TestScore_MissingTransactionID(t *testing.T) {
-	h := NewHandler(&stubGetter{}, &stubScorer{version: "v1"}, &recordingLogger{logged: make(chan predictions.Record, 1)}, 0.5)
+	h := NewHandler(&stubGetter{}, &stubScorer{version: "v1"}, &stubReloader{}, &recordingLogger{logged: make(chan predictions.Record, 1)}, okPinger(), okPinger(), 0.5, "tok")
 	req := httptest.NewRequest(http.MethodPost, "/score", bytes.NewBufferString(`{}`))
 	w := httptest.NewRecorder()
 	h.Score(w, req)
@@ -87,7 +133,7 @@ func TestScore_MissingTransactionID(t *testing.T) {
 }
 
 func TestScore_InvalidBody(t *testing.T) {
-	h := NewHandler(&stubGetter{}, &stubScorer{version: "v1"}, &recordingLogger{logged: make(chan predictions.Record, 1)}, 0.5)
+	h := NewHandler(&stubGetter{}, &stubScorer{version: "v1"}, &stubReloader{}, &recordingLogger{logged: make(chan predictions.Record, 1)}, okPinger(), okPinger(), 0.5, "tok")
 	req := httptest.NewRequest(http.MethodPost, "/score", bytes.NewBufferString(`not json`))
 	w := httptest.NewRecorder()
 	h.Score(w, req)
@@ -98,8 +144,11 @@ func TestScore_FeatureNotFound(t *testing.T) {
 	h := NewHandler(
 		&stubGetter{err: features.ErrNotFound},
 		&stubScorer{version: "v1"},
+		&stubReloader{},
 		&recordingLogger{logged: make(chan predictions.Record, 1)},
+		okPinger(), okPinger(),
 		0.5,
+		"tok",
 	)
 	req := httptest.NewRequest(http.MethodPost, "/score", bytes.NewBufferString(`{"transaction_id": 99}`))
 	w := httptest.NewRecorder()
@@ -112,8 +161,11 @@ func TestScore_ValidRequest(t *testing.T) {
 	h := NewHandler(
 		&stubGetter{feats: map[string]float32{"f1": 1.0}},
 		&stubScorer{version: "v1", prob: 0.8},
+		&stubReloader{},
 		logger,
+		okPinger(), okPinger(),
 		0.5,
+		"tok",
 	)
 	req := httptest.NewRequest(http.MethodPost, "/score", bytes.NewBufferString(`{"transaction_id": 42}`))
 	w := httptest.NewRecorder()
@@ -131,8 +183,11 @@ func TestScore_FeatureLookupError(t *testing.T) {
 	h := NewHandler(
 		&stubGetter{err: fmt.Errorf("redis timeout")},
 		&stubScorer{version: "v1"},
+		&stubReloader{},
 		&recordingLogger{logged: make(chan predictions.Record, 1)},
+		okPinger(), okPinger(),
 		0.5,
+		"tok",
 	)
 	req := httptest.NewRequest(http.MethodPost, "/score", bytes.NewBufferString(`{"transaction_id": 42}`))
 	w := httptest.NewRecorder()
@@ -144,12 +199,98 @@ func TestScore_InferenceError(t *testing.T) {
 	h := NewHandler(
 		&stubGetter{feats: map[string]float32{"f1": 1.0}},
 		&stubScorer{err: fmt.Errorf("onnx session failed")},
+		&stubReloader{},
 		&recordingLogger{logged: make(chan predictions.Record, 1)},
+		okPinger(), okPinger(),
 		0.5,
+		"tok",
 	)
 	req := httptest.NewRequest(http.MethodPost, "/score", bytes.NewBufferString(`{"transaction_id": 42}`))
 	w := httptest.NewRecorder()
 	h.Score(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestScore_NaNProbReturns500(t *testing.T) {
+	h := NewHandler(
+		&stubGetter{feats: map[string]float32{"f1": 1.0}},
+		&stubScorer{version: "v1", prob: float32(math.NaN())},
+		&stubReloader{},
+		&recordingLogger{logged: make(chan predictions.Record, 1)},
+		okPinger(), okPinger(),
+		0.5,
+		"tok",
+	)
+	req := httptest.NewRequest(http.MethodPost, "/score", bytes.NewBufferString(`{"transaction_id": 42}`))
+	w := httptest.NewRecorder()
+	h.Score(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "non-finite")
+}
+
+func TestReload_RejectsWithoutToken(t *testing.T) {
+	rel := &stubReloader{newVer: "newversion"}
+	h := NewHandler(
+		&stubGetter{}, &stubScorer{version: "old"}, rel,
+		&recordingLogger{logged: make(chan predictions.Record, 1)},
+		okPinger(), okPinger(), 0.5, "secret",
+	)
+	body := `{"model_path":"/m.onnx","feature_order_path":"/f.json"}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/reload", bytes.NewBufferString(body))
+	w := httptest.NewRecorder()
+	h.Reload(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.False(t, rel.called)
+}
+
+func TestReload_AcceptsCorrectToken(t *testing.T) {
+	rel := &stubReloader{newVer: "newversion"}
+	h := NewHandler(
+		&stubGetter{}, &stubScorer{version: "old"}, rel,
+		&recordingLogger{logged: make(chan predictions.Record, 1)},
+		okPinger(), okPinger(), 0.5, "secret",
+	)
+	body := `{"model_path":"/m.onnx","feature_order_path":"/f.json"}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/reload", bytes.NewBufferString(body))
+	req.Header.Set("X-Admin-Token", "secret")
+	w := httptest.NewRecorder()
+	h.Reload(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, rel.called)
+	assert.Equal(t, "/m.onnx", rel.gotModel)
+	assert.Equal(t, "/f.json", rel.gotOrder)
+	var resp map[string]string
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "newversion", resp["model_version"])
+}
+
+func TestReload_MissingFields(t *testing.T) {
+	rel := &stubReloader{}
+	h := NewHandler(
+		&stubGetter{}, &stubScorer{version: "old"}, rel,
+		&recordingLogger{logged: make(chan predictions.Record, 1)},
+		okPinger(), okPinger(), 0.5, "secret",
+	)
+	req := httptest.NewRequest(http.MethodPost, "/admin/reload", bytes.NewBufferString(`{}`))
+	req.Header.Set("X-Admin-Token", "secret")
+	w := httptest.NewRecorder()
+	h.Reload(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.False(t, rel.called)
+}
+
+func TestReload_PropagatesReloaderError(t *testing.T) {
+	rel := &stubReloader{err: fmt.Errorf("model file not found")}
+	h := NewHandler(
+		&stubGetter{}, &stubScorer{version: "old"}, rel,
+		&recordingLogger{logged: make(chan predictions.Record, 1)},
+		okPinger(), okPinger(), 0.5, "secret",
+	)
+	body := `{"model_path":"/missing.onnx","feature_order_path":"/f.json"}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/reload", bytes.NewBufferString(body))
+	req.Header.Set("X-Admin-Token", "secret")
+	w := httptest.NewRecorder()
+	h.Reload(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
@@ -161,8 +302,11 @@ func TestScore_DoesNotBlockOnLog(t *testing.T) {
 	h := NewHandler(
 		&stubGetter{feats: map[string]float32{"f1": 1.0}},
 		&stubScorer{version: "v1", prob: 0.1},
+		&stubReloader{},
 		logger,
+		okPinger(), okPinger(),
 		0.5,
+		"tok",
 	)
 	req := httptest.NewRequest(http.MethodPost, "/score", bytes.NewBufferString(`{"transaction_id": 42}`))
 	w := httptest.NewRecorder()

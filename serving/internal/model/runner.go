@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sync"
+	"time"
 
 	ort "github.com/yalue/onnxruntime_go"
 )
@@ -17,6 +19,106 @@ type Runner struct {
 	session      *ort.DynamicAdvancedSession
 	featureOrder []string
 	modelVersion string
+}
+
+// Sampler exposes the feature key set on one arbitrary Redis row so a model
+// swap can fail fast if Redis is missing names a candidate model expects.
+// nil disables the check.
+type Sampler interface {
+	SampleFeatureNames(ctx context.Context) ([]string, error)
+}
+
+// Swappable wraps a Runner so the underlying model can be replaced at runtime
+// without restarting the process. Score holds an RLock and Reload takes the
+// write lock, so a reload cannot proceed until in-flight Scores complete -
+// which is the only point at which the old runner is safe to destroy.
+type Swappable struct {
+	mu      sync.RWMutex
+	r       *Runner
+	sampler Sampler
+}
+
+func NewSwappable(initial *Runner, sampler Sampler) *Swappable {
+	return &Swappable{r: initial, sampler: sampler}
+}
+
+func (s *Swappable) Score(ctx context.Context, featureMap map[string]float32) (float32, string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.r.Score(ctx, featureMap)
+}
+
+func (s *Swappable) ModelVersion() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.r.modelVersion
+}
+
+func (s *Swappable) Reload(modelPath, featureOrderPath string) (string, error) {
+	newR, err := NewRunner(modelPath, featureOrderPath)
+	if err != nil {
+		return "", err
+	}
+	if s.sampler != nil {
+		if err := validateAgainstSample(s.sampler, newR.featureOrder); err != nil {
+			newR.Destroy()
+			return "", err
+		}
+	}
+	s.mu.Lock()
+	old := s.r
+	s.r = newR
+	s.mu.Unlock()
+	old.Destroy()
+	return newR.modelVersion, nil
+}
+
+func validateAgainstSample(sampler Sampler, featureOrder []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sampleNames, err := sampler.SampleFeatureNames(ctx)
+	if err != nil {
+		return fmt.Errorf("sample redis to validate new model: %w", err)
+	}
+	have := make(map[string]struct{}, len(sampleNames))
+	for _, n := range sampleNames {
+		have[n] = struct{}{}
+	}
+	var missing []string
+	for _, name := range featureOrder {
+		if _, ok := have[name]; !ok {
+			missing = append(missing, name)
+			if len(missing) >= 5 {
+				break
+			}
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("redis sample missing features required by new model (first %d shown): %v", len(missing), missing)
+	}
+	return nil
+}
+
+func (s *Swappable) Destroy() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.r != nil {
+		s.r.Destroy()
+		s.r = nil
+	}
+}
+
+var (
+	ortInitOnce sync.Once
+	ortInitErr  error
+)
+
+func initORT() error {
+	ortInitOnce.Do(func() {
+		ort.SetSharedLibraryPath(sharedLibPath())
+		ortInitErr = ort.InitializeEnvironment()
+	})
+	return ortInitErr
 }
 
 func NewRunner(modelPath, featureOrderPath string) (*Runner, error) {
@@ -34,10 +136,9 @@ func NewRunner(modelPath, featureOrderPath string) (*Runner, error) {
 		return nil, fmt.Errorf("read model: %w", err)
 	}
 	h := sha256.Sum256(modelData)
-	modelVersion := hex.EncodeToString(h[:])[:8]
+	modelVersion := hex.EncodeToString(h[:])
 
-	ort.SetSharedLibraryPath(sharedLibPath())
-	if err := ort.InitializeEnvironment(); err != nil {
+	if err := initORT(); err != nil {
 		return nil, fmt.Errorf("init onnxruntime: %w", err)
 	}
 
