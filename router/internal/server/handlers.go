@@ -57,8 +57,9 @@ type scoreRequest struct {
 
 func (h *Handler) handleScore(w http.ResponseWriter, r *http.Request) {
 	var req scoreRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TransactionID == 0 {
+		http.Error(w, "invalid request body: transaction_id required", http.StatusBadRequest)
 		return
 	}
 
@@ -121,6 +122,7 @@ func (h *Handler) handleScore(w http.ResponseWriter, r *http.Request) {
 					ChallengerFlagged:      challengerResp.Flagged,
 				})
 				if err != nil {
+					metrics.ShadowInsertErrorsTotal.Inc()
 					slog.Warn("shadow comparison insert failed", "err", err)
 				}
 			},
@@ -138,6 +140,17 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("champion unhealthy: %v", err), http.StatusServiceUnavailable)
 		return
 	}
+	// If the challenger is taking live canary traffic, an unreachable challenger
+	// is a user-visible problem and must fail readiness. Shadow-only failures
+	// degrade comparison data, not user responses, so they are not gated here.
+	st := h.state.Load()
+	if st.CanaryEnabled && st.ChallengerTrafficPercent > 0 {
+		if err := h.challenger.Health(ctx); err != nil {
+			http.Error(w, fmt.Sprintf("challenger unhealthy: %v", err), http.StatusServiceUnavailable)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintln(w, `{"status":"ok"}`)
 }
@@ -155,6 +168,7 @@ func (h *Handler) handleAdminCanary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req adminCanaryRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
@@ -166,6 +180,13 @@ func (h *Handler) handleAdminCanary(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ShadowPercent < 0 || req.ShadowPercent > 100 {
 		http.Error(w, "shadow_percent must be 0-100", http.StatusBadRequest)
+		return
+	}
+	// Shadow only runs when canary is off (see routing.Decide). Reject the
+	// combination at the API boundary so callers cannot set a value that the
+	// router silently ignores.
+	if req.Enabled && req.ShadowPercent > 0 {
+		http.Error(w, "shadow_percent must be 0 when canary is enabled", http.StatusBadRequest)
 		return
 	}
 

@@ -36,4 +36,9 @@ var (
 		Name: "router_upstream_errors_total",
 		Help: "Upstream errors by service and kind.",
 	}, []string{"upstream", "kind"})
+
+	ShadowInsertErrorsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "router_shadow_insert_errors_total",
+		Help: "shadow_comparisons INSERT failures from the OnComplete callback.",
+	})
 )

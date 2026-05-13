@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -48,9 +47,3 @@ func (s *Store) InsertShadowComparison(ctx context.Context, sc ShadowComparison)
 	)
 	return err
 }
-
-func newUUID() string {
-	return uuid.New().String()
-}
-
-var _ = newUUID // suppress unused

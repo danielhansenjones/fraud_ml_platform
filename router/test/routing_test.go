@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -122,7 +121,8 @@ func TestRouting_ShadowDrops_DoNotBlockForeground(t *testing.T) {
 	const n = 200
 	start := time.Now()
 	for i := range n {
-		body, _ := json.Marshal(map[string]int64{"transaction_id": int64(i)})
+		// transaction_id 0 is rejected as missing; start IDs at 1.
+		body, _ := json.Marshal(map[string]int64{"transaction_id": int64(i) + 1})
 		req := httptest.NewRequest(http.MethodPost, "/score", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -158,7 +158,7 @@ func TestAdmin_AcceptsCorrectToken(t *testing.T) {
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 
-	body, _ := json.Marshal(map[string]any{"enabled": true, "challenger_traffic_percent": 20, "shadow_percent": 50})
+	body, _ := json.Marshal(map[string]any{"enabled": true, "challenger_traffic_percent": 20, "shadow_percent": 0})
 	req := httptest.NewRequest(http.MethodPost, "/admin/canary", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Admin-Token", testAdminToken)
@@ -167,6 +167,23 @@ func TestAdmin_AcceptsCorrectToken(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAdmin_RejectsCanaryWithShadow(t *testing.T) {
+	h, _, _ := newTestHandler(t, routing.State{})
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	body, _ := json.Marshal(map[string]any{"enabled": true, "challenger_traffic_percent": 20, "shadow_percent": 50})
+	req := httptest.NewRequest(http.MethodPost, "/admin/canary", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Admin-Token", testAdminToken)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for canary+shadow combo, got %d", w.Code)
 	}
 }
 
@@ -208,7 +225,7 @@ func TestDecide_ChampionOnly(t *testing.T) {
 	}
 }
 
-func TestDecide_CanaySplit(t *testing.T) {
+func TestDecide_CanarySplit(t *testing.T) {
 	st := routing.State{CanaryEnabled: true, ChallengerTrafficPercent: 50}
 	champCount, challCount := 0, 0
 	for i := range 1000 {
@@ -277,4 +294,3 @@ func TestScore_ContextCancelled(t *testing.T) {
 	}
 }
 
-var _ = fmt.Sprintf
