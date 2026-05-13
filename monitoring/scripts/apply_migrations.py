@@ -33,15 +33,14 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 def main() -> None:
     dsn = os.environ.get("POSTGRES_DSN", "postgresql://fraud:fraud@localhost:5432/fraud")
     try:
-        conn = psycopg.connect(dsn)
+        conn = psycopg.connect(dsn, autocommit=True)
     except Exception as exc:
         raise RuntimeError(
             f"Cannot connect to Postgres ({dsn}). "
             "Start it first: docker compose up -d postgres"
         ) from exc
     try:
-        with conn.transaction():
-            conn.execute(SCHEMA_TABLE_SQL)
+        conn.execute(SCHEMA_TABLE_SQL)
 
         for filename in MIGRATIONS:
             already = conn.execute(
