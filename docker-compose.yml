@@ -19,13 +19,10 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./migrations/001_predictions_table.sql:/docker-entrypoint-initdb.d/001_predictions_table.sql
-      - ./migrations/002_labels_table.sql:/docker-entrypoint-initdb.d/002_labels_table.sql
-      - ./migrations/003_models_table.sql:/docker-entrypoint-initdb.d/003_models_table.sql
-      - ./migrations/004_drift_alerts_table.sql:/docker-entrypoint-initdb.d/004_drift_alerts_table.sql
-      - ./migrations/005_canary_decisions_table.sql:/docker-entrypoint-initdb.d/005_canary_decisions_table.sql
-      - ./migrations/006_shadow_comparisons_table.sql:/docker-entrypoint-initdb.d/006_shadow_comparisons_table.sql
-      - ./migrations/007_shadow_summaries_table.sql:/docker-entrypoint-initdb.d/007_shadow_summaries_table.sql
+    # Schema is applied by monitoring/scripts/apply_migrations.py, which is run as
+    # part of `uv run python monitoring/main.py` during setup. Mounting the SQL
+    # into docker-entrypoint-initdb.d only takes effect on fresh data volumes and
+    # produces two ways to evolve the schema, which is one too many.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fraud -d fraud"]
       interval: 5s
@@ -42,10 +39,10 @@ services:
       PORT: "8080"
       MODEL_PATH: /app/artifacts/final_model.onnx
       FEATURE_ORDER_PATH: /app/artifacts/onnx_feature_order.json
-      CATEGORICAL_ENCODER_PATH: /app/artifacts/categorical_encoder.json
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       POSTGRES_DSN: postgres://fraud:fraud@postgres:5432/fraud?sslmode=disable
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN required}
       FLAG_THRESHOLD: "0.5"
       PREDICTION_BUFFER_SIZE: "1000"
       PREDICTION_FLUSH_INTERVAL_MS: "1000"
@@ -74,10 +71,10 @@ services:
       PORT: "8080"
       MODEL_PATH: /app/artifacts/challenger/lgbm_final_model.onnx
       FEATURE_ORDER_PATH: /app/artifacts/challenger/lgbm_onnx_feature_order.json
-      CATEGORICAL_ENCODER_PATH: /app/artifacts/categorical_encoder.json
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       POSTGRES_DSN: postgres://fraud:fraud@postgres:5432/fraud?sslmode=disable
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN required}
       FLAG_THRESHOLD: "0.5"
       PREDICTION_BUFFER_SIZE: "1000"
       PREDICTION_FLUSH_INTERVAL_MS: "1000"
@@ -105,7 +102,7 @@ services:
       PORT: "8081"
       CHAMPION_URL: http://champion-model:8080
       CHALLENGER_URL: http://challenger-model:8080
-      ADMIN_TOKEN: changeme  # change in production; see .env.example
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN required}
       POSTGRES_DSN: postgres://fraud:fraud@postgres:5432/fraud?sslmode=disable
       INITIAL_CANARY_PERCENT: "0"
       INITIAL_SHADOW_PERCENT: "100"
@@ -162,7 +159,11 @@ services:
     environment:
       POSTGRES_DSN: postgresql://fraud:fraud@postgres:5432/fraud
       ROUTER_URL: http://router:8081
-      ADMIN_TOKEN: changeme
+      CHAMPION_SERVING_URL: http://champion-model:8080
+      CHALLENGER_SERVING_URL: http://challenger-model:8080
+      CHALLENGER_MODEL_PATH: /app/artifacts/challenger/lgbm_final_model.onnx
+      CHALLENGER_FEATURE_ORDER_PATH: /app/artifacts/challenger/lgbm_onnx_feature_order.json
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN required}
       CHAMPION_VERSION: ${CHAMPION_VERSION}
       CHALLENGER_VERSION: ${CHALLENGER_VERSION}
       CANARY_INTERVAL_MINUTES: "60"

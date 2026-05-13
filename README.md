@@ -4,7 +4,7 @@ Most ML portfolio projects stop at model training.
 This one builds the production system around the model: ONNX inference in Go, a canary router with automated rollback, drift detection on rolling prediction windows, and a late-label evaluation loop that simulates the delay between a transaction and its fraud label.
 
 The XGBoost champion scores PR-AUC 0.505 on the held-out test set.
-A LightGBM challenger at 0.584 runs behind the router on 100% shadow traffic while the canary evaluator decides whether to promote it.
+A LightGBM challenger runs behind the router on 100% shadow traffic while the canary evaluator decides whether to promote it.
 
 ## The Interesting Parts
 
@@ -26,14 +26,27 @@ The uncalibrated model is served.
 
 ## Results
 
-| Model                       | PR-AUC    | ROC-AUC   | Eval          |
-|-----------------------------|-----------|-----------|---------------|
-| Logistic Regression         | 0.272     | 0.807     | CV mean       |
-| Random Forest               | 0.405     | 0.836     | CV mean       |
-| LightGBM baseline           | 0.527     | 0.878     | CV mean       |
-| XGBoost untuned             | 0.540     | 0.892     | CV mean       |
-| XGBoost tuned (champion)    | **0.505** | **0.899** | held-out test |
-| LightGBM tuned (challenger) | **0.584** | -         | held-out test |
+### Baselines (5-fold purged time-series CV, train set only)
+
+| Model                       | PR-AUC | ROC-AUC | Notes                          |
+|-----------------------------|--------|---------|--------------------------------|
+| Logistic Regression         | 0.272  | 0.807   | 100k stratified subsample      |
+| Random Forest               | 0.405  | 0.836   | 100k stratified subsample      |
+| LightGBM baseline           | 0.527  | 0.878   | full train, native NaN         |
+| XGBoost untuned             | 0.540  | 0.892   | full train, native NaN         |
+
+LR and RF use a 100k stratified subsample to keep the baseline sweep within a fixed time budget; LightGBM and XGBoost run on the full train set.
+
+### Champion vs challenger (held-out test set)
+
+Same evaluation script, same NaN policy, same categorical encoding applied to test using train-time mappings.
+
+| Model                       | PR-AUC    | ROC-AUC   |
+|-----------------------------|-----------|-----------|
+| XGBoost tuned (champion)    | **0.505** | **0.899** |
+| LightGBM tuned (challenger) | _pending_ | _pending_ |
+
+The challenger numbers are pending a retrain. The training script (`monitoring/scripts/train_challenger.py`) was previously encoding test independently of train, which biased the reported PR-AUC; the encoding fix is in place but the saved ONNX still came from the buggy run. To refresh: rerun `train_challenger.py` (reuses the existing 200-trial Optuna study and only refits the final model), then `register_models.py` to update the database row.
 
 | Load Test                      | p95     | Error Rate | Result          |
 |--------------------------------|---------|------------|-----------------|
@@ -57,16 +70,16 @@ Python, Go, Redis, Postgres, ONNX Runtime, Prometheus, Grafana, k6, Docker Compo
 
 ```bash
 uv sync
-cp .env.example .env  # edit CHAMPION_VERSION / CHALLENGER_VERSION after phase 2 setup
+cp .env.example .env  # edit CHAMPION_VERSION / CHALLENGER_VERSION after monitoring setup
 
 # Phase 1: train and serve
-uv run python main.py
 docker compose up -d redis postgres
-uv run python training/scripts/load_features_to_redis.py
+uv run python main.py            # runs training pipeline through load_features_to_redis
 docker compose up --build
 
-# Monitoring: challenger, router, canary, monitoring (LightGBM training ~60 min)
-docker compose up -d postgres redis
+# Phase 2 monitoring: challenger model, router, drift/label/canary/shadow jobs
+# (the challenger Optuna search dominates wall time on first run; reusing the
+# saved study on subsequent runs is fast.)
 uv run python monitoring/main.py
 # edit .env: set REFERENCE_WINDOW_START/END and CHAMPION/CHALLENGER_VERSION
 docker compose --profile monitoring up --build -d

@@ -14,13 +14,14 @@ status=$(curl -s -o /dev/null -w "%{http_code}" "$ROUTER_URL/health")
 [ "$status" = "200" ] && pass "router /health" || fail "router /health returned $status"
 
 echo "2. Sending 100 /score requests..."
-TRANSACTION_IDS=($(python3 -c "
-import pandas as pd
-df = pd.read_parquet('training/artifacts/prep_test.parquet', columns=['TransactionID'])
-print('\n'.join(df.TransactionID.head(100).astype(str).tolist()))
-"))
+TX_IDS_FILE="${TX_IDS_FILE:-load/k6/transaction_ids.json}"
+if [ ! -f "$TX_IDS_FILE" ]; then
+    fail "transaction id file not found: $TX_IDS_FILE (generate it via the k6 setup step in PRODUCTION.md)"
+fi
+# Reuse the persisted ID list rather than re-shelling pandas on every smoke run.
+TRANSACTION_IDS=($(python3 -c "import json; print('\n'.join(map(str, json.load(open('$TX_IDS_FILE'))[:100])))"))
 if [ ${#TRANSACTION_IDS[@]} -eq 0 ]; then
-    fail "could not read transaction IDs from prep_test.parquet"
+    fail "no transaction IDs available in $TX_IDS_FILE"
 fi
 
 ok_count=0

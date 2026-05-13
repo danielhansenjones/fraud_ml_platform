@@ -14,11 +14,8 @@ dist/
 .ruff_cache/
 .idea/
 /design/
-phase2/.venv/
-phase2/artifacts/
 grafana/data/
 prometheus/data/
 load/results/
 load/k6/transaction_ids.json
 router/vendor/
-phase2/vendor_python/

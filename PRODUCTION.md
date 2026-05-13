@@ -159,6 +159,10 @@ Run 1 (after a feature pipeline incident):
   challenger -> retired, router back to champion only
 ```
 
+### Operator notes
+
+The monitoring jobs (drift, label, canary, shadow) each run as a single container with a `time.sleep(interval)` loop. There is no leader election. Scaling any of them to multiple replicas would produce duplicate writes (canary decisions, drift alerts) and double the work. Boring beats clever at this scale; if you need to scale, add a leader lease or move the schedule into an external orchestrator.
+
 ### Scope decisions
 
 Promotion is gated on prediction-quality metrics (PR-AUC, Brier) plus a latency guardrail. The challenger trips a rollback if its p95 exceeds the champion's by more than `CANARY_LATENCY_P95_ROLLBACK_RATIO` (default 3x), wide enough to tolerate a heavier model under partial canary load without flapping. Upstream error rate is collected in Prometheus for dashboards rather than wired into the decision so the gate stays driven by labeled outcomes.
@@ -166,6 +170,8 @@ Promotion is gated on prediction-quality metrics (PR-AUC, Brier) plus a latency 
 Retraining is operator-triggered. The drift detector writes to `drift_alerts`; when sustained drift warrants it, rerun `monitoring/main.py --only train_challenger` and restart with the new challenger artifact. Auto-retraining off unlabeled drift is deliberately left out: promotion is gated on labeled outcomes, and feeding drift signals into model lifecycle changes the failure mode in ways that need their own evaluation.
 
 ## Load test results
+
+Single developer machine, not a production environment. These numbers confirm the system handles the stated load on this hardware; they do not establish production capacity.
 
 Hardware: AMD Ryzen 9 9950X3D 16-core, 30GiB RAM, no Docker resource limits.
 
