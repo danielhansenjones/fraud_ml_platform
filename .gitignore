@@ -19,3 +19,4 @@ prometheus/data/
 load/results/
 load/k6/transaction_ids.json
 router/vendor/
+docker-compose.override.yml
