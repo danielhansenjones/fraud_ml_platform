@@ -124,16 +124,34 @@ def test_no_signal_returns_continue():
     pool = _make_pool(rows, rows[:])
     decision = evaluate_canary(pool, "champ-v1", "chall-v1", 24, cfg, prior_outcomes=[])
     assert decision.decision == "continue"
+    assert decision.outcome == "no_signal"
+    assert decision.reason == "no_clear_signal"
+    # Equal inputs must yield equal metrics; pr_auc delta is exactly zero.
+    assert decision.metrics["champion"]["pr_auc"] == decision.metrics["challenger"]["pr_auc"]
+    assert decision.metrics["champion"]["brier_score"] == decision.metrics["challenger"]["brier_score"]
 
 
 def test_metrics_payload_has_per_model_section_when_data_sufficient():
     cfg = _make_config(canary_min_labeled_predictions=10)
-    rows = _fraud_rows(50, 0.2)
+    rows = _fraud_rows(50, 0.2, latency_ms=7.5)
     pool = _make_pool(rows, rows[:])
     decision = evaluate_canary(pool, "champ-v1", "chall-v1", 24, cfg, prior_outcomes=[])
-    assert "champion" in decision.metrics
-    assert "challenger" in decision.metrics
+
     assert "min_required" not in decision.metrics
+    expected_keys = {"n", "pr_auc", "roc_auc", "brier_score", "flag_rate", "p95_total_ms"}
+    for side in ("champion", "challenger"):
+        section = decision.metrics[side]
+        assert set(section.keys()) == expected_keys, side
+        assert section["n"] == 50
+        # Sanity-bound the probabilistic metrics so a regression that emits
+        # NaN, inf, or out-of-range values fails loudly here instead of
+        # silently corrupting a downstream decision.
+        for k in ("pr_auc", "roc_auc", "brier_score", "flag_rate"):
+            v = section[k]
+            assert isinstance(v, float)
+            assert 0.0 <= v <= 1.0, f"{side}.{k}={v}"
+        # p95 of a constant array must equal the constant.
+        assert section["p95_total_ms"] == 7.5
 
 
 def test_metrics_payload_carries_min_required_when_insufficient():
