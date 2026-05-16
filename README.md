@@ -44,10 +44,11 @@ The same evaluation script, same NaN policy, same categorical encoding applied t
 
 | Model                       | PR-AUC    | ROC-AUC   |
 |-----------------------------|-----------|-----------|
-| XGBoost tuned (champion)    | 0.523     | **0.906** |
-| LightGBM tuned (challenger) | **0.573** | -         |
+| XGBoost tuned (champion)    | 0.523     | 0.906     |
+| LightGBM tuned (challenger) | **0.573** | **0.915** |
 
-The challenger beats the champion on test PR-AUC by 0.05. This is the canary system's actual job: shadow it on live traffic and let the evaluator decide whether the advantage holds across multiple windows before promoting. ROC-AUC is not recorded in the challenger's results artifact; only PR-AUC and Brier (0.0223) are saved.
+The challenger beats the champion on test PR-AUC by 0.05 and ROC-AUC by 0.009; Brier is unchanged.
+This is the canary system's actual job: shadow it on live traffic and let the evaluator decide whether the advantage holds across multiple windows before promoting.
 
 | Load Test                      | p95     | Error Rate | Result          |
 |--------------------------------|---------|------------|-----------------|

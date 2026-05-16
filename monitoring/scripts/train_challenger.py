@@ -9,9 +9,10 @@ import lightgbm as lgb
 import numpy as np
 import optuna
 import pandas as pd
-from sklearn.metrics import average_precision_score, brier_score_loss
+from sklearn.metrics import average_precision_score
 
 from monitoring.common.encoding import encode_categoricals
+from training.src.evaluate import compute_metrics, find_optimal_threshold
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -110,12 +111,12 @@ def main() -> None:
     # degraded PR-AUC on the test set. Matches the champion's export decision.
 
     test_probs = final_model.predict_proba(X_test)[:, 1]
-    pr_auc = average_precision_score(y_test, test_probs)
-    brier = brier_score_loss(y_test, test_probs)
+    threshold = find_optimal_threshold(y_test.values, test_probs)
+    metrics = compute_metrics(y_test.values, test_probs, threshold=threshold)
 
-    results = {"pr_auc_test": pr_auc, "brier_test": brier, "best_cv_pr_auc": study.best_value}
+    results = {"uncalibrated": metrics, "best_cv_pr_auc": study.best_value}
     (CHALLENGER_DIR / "lgbm_results.json").write_text(json.dumps(results, indent=2))
-    log.info("test PR-AUC=%.4f brier=%.4f", pr_auc, brier)
+    log.info("test PR-AUC=%.4f ROC-AUC=%.4f brier=%.4f", metrics["pr_auc"], metrics["roc_auc"], metrics["brier"])
 
     _export_onnx(final_model, feature_cols, cat_mappings=_load_cat_mappings())
 
