@@ -3,8 +3,7 @@
 Most ML portfolio projects stop at model training.
 This one builds the production system around the model: ONNX inference in Go, a canary router with automated rollback, drift detection on rolling prediction windows, and a late-label evaluation loop that simulates the delay between a transaction and its fraud label.
 
-The XGBoost champion scores PR-AUC 0.505 on the held-out test set.
-A LightGBM challenger runs behind the router on 100% shadow traffic while the canary evaluator decides whether to promote it.
+The XGBoost champion scores PR-AUC 0.523 on the held-out test set. A LightGBM challenger scores 0.573 on the same split and runs behind the router on 100% shadow traffic while the canary evaluator decides whether to promote it.
 
 ## The Interesting Parts
 
@@ -30,10 +29,10 @@ The uncalibrated model is served.
 
 | Model                       | PR-AUC | ROC-AUC | Notes                          |
 |-----------------------------|--------|---------|--------------------------------|
-| Logistic Regression         | 0.272  | 0.807   | 100k stratified subsample      |
-| Random Forest               | 0.405  | 0.836   | 100k stratified subsample      |
-| LightGBM baseline           | 0.527  | 0.878   | full train, native NaN         |
-| XGBoost untuned             | 0.540  | 0.892   | full train, native NaN         |
+| Logistic Regression         | 0.271  | 0.807   | 100k stratified subsample      |
+| Random Forest               | 0.404  | 0.836   | 100k stratified subsample      |
+| LightGBM baseline           | 0.532  | 0.880   | full train, native NaN         |
+| XGBoost untuned             | 0.539  | 0.890   | full train, native NaN         |
 
 LR and RF use a 100k stratified subsample to keep the baseline sweep within a fixed time budget; LightGBM and XGBoost run on the full train set.
 
@@ -43,10 +42,10 @@ Same evaluation script, same NaN policy, same categorical encoding applied to te
 
 | Model                       | PR-AUC    | ROC-AUC   |
 |-----------------------------|-----------|-----------|
-| XGBoost tuned (champion)    | **0.505** | **0.899** |
-| LightGBM tuned (challenger) | _pending_ | _pending_ |
+| XGBoost tuned (champion)    | 0.523     | **0.906** |
+| LightGBM tuned (challenger) | **0.573** | -         |
 
-The challenger numbers are pending a retrain. The training script (`monitoring/scripts/train_challenger.py`) was previously encoding test independently of train, which biased the reported PR-AUC; the encoding fix is in place but the saved ONNX still came from the buggy run. To refresh: rerun `train_challenger.py` (reuses the existing 200-trial Optuna study and only refits the final model), then `register_models.py` to update the database row.
+The challenger beats the champion on test PR-AUC by 0.05. This is the canary system's actual job: shadow it on live traffic and let the evaluator decide whether the advantage holds across multiple windows before promoting. ROC-AUC is not recorded in the challenger's results artifact; only PR-AUC and Brier (0.0223) are saved.
 
 | Load Test                      | p95     | Error Rate | Result          |
 |--------------------------------|---------|------------|-----------------|
