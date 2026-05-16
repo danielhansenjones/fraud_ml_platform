@@ -53,7 +53,7 @@ def load_data():
 
 def objective(trial, X_train, y_train, X_val, y_val):
     params = {
-        "num_leaves": trial.suggest_int("num_leaves", 20, 300),
+        "num_leaves": trial.suggest_int("num_leaves", 20, 500),
         "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.3, log=True),
         "feature_fraction": trial.suggest_float("feature_fraction", 0.4, 1.0),
         "bagging_fraction": trial.suggest_float("bagging_fraction", 0.4, 1.0),
@@ -61,11 +61,12 @@ def objective(trial, X_train, y_train, X_val, y_val):
         "min_child_samples": trial.suggest_int("min_child_samples", 5, 100),
         "reg_alpha": trial.suggest_float("reg_alpha", 1e-8, 10.0, log=True),
         "reg_lambda": trial.suggest_float("reg_lambda", 1e-8, 10.0, log=True),
-        "n_estimators": trial.suggest_int("n_estimators", 100, 1000),
+        "n_estimators": trial.suggest_int("n_estimators", 200, 2000),
         "objective": "binary",
         "metric": "average_precision",
         "verbosity": -1,
         "random_state": 42,
+        "device": "cuda",
     }
 
     model = lgb.LGBMClassifier(**params)
@@ -80,12 +81,12 @@ def main() -> None:
 
     study = optuna.create_study(
         direction="maximize",
-        study_name="lgbm_fraud_v1",
+        study_name="lgbm_fraud_v2",
         storage=f"sqlite:///{OPTUNA_DIR}/lgbm_study.sqlite",
         load_if_exists=True,
     )
     n_complete = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
-    n_remaining = max(0, 200 - n_complete)
+    n_remaining = max(0, 300 - n_complete)
     log.info("study has %d completed trials, running %d more", n_complete, n_remaining)
     if n_remaining > 0:
         study.optimize(
@@ -94,7 +95,7 @@ def main() -> None:
             show_progress_bar=True,
         )
 
-    best_params = {**study.best_params, "objective": "binary", "verbosity": -1, "random_state": 42}
+    best_params = {**study.best_params, "objective": "binary", "verbosity": -1, "random_state": 42, "device": "cuda"}
     (CHALLENGER_DIR / "lgbm_best_params.json").write_text(json.dumps(best_params, indent=2))
     log.info("best params saved, PR-AUC=%.4f", study.best_value)
 
