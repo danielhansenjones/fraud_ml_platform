@@ -50,11 +50,19 @@ The same evaluation script, same NaN policy, same categorical encoding applied t
 The challenger beats the champion on test PR-AUC by 0.05 and ROC-AUC by 0.009; Brier is unchanged.
 This is the canary system's actual job: shadow it on live traffic and let the evaluator decide whether the advantage holds across multiple windows before promoting.
 
-| Load Test                      | p95     | Error Rate | Result          |
-|--------------------------------|---------|------------|-----------------|
-| Steady-state 100 RPS, 10 min   | 3.83ms  | 0.00%      | pass            |
-| Ramp to 500 RPS, 22 min        | 32.45ms | 0.00%      | no breakdown    |
-| Champion paused 30s at 100 RPS | -       | 9.95%      | pass (SLO <10%) |
+### Load tests
+
+Single dev (AMD Ryzen 9 9950X3D, 32 threads, 30GiB RAM). The breakdown ramp pushes until the SLO breaks; the failure-injection test pauses the champion mid-stream and watches the rollback path.
+
+| Load Test                          | p95     | Error Rate | Result                              |
+|------------------------------------|---------|------------|-------------------------------------|
+| Steady-state 100 RPS, 10 min       | 3.83ms  | 0.00%      | pass                                |
+| Breakdown ramp, peak ~1100 RPS     | 64ms    | 5.30%      | cliff at ~1000 RPS, ONNX-CPU bound  |
+| Champion paused 30s at 100 RPS     | -       | 9.95%      | pass (SLO <10%)                     |
+
+Cliff is the champion's ONNX inference, not the router or feature store. At the cliff the champion container is using ~30 cores of the host; router stays under 10% CPU and Redis under 2%. 
+Latency degrades gracefully through the cliff (p95 stays under the 200ms SLO); failures are hard 503s rather than ctx timeouts.
+Detailed methodology and per-component diagnosis in [load/README.md](load/README.md).
 
 ## Stack
 

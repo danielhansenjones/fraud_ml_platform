@@ -46,10 +46,19 @@ type Client struct {
 }
 
 func New(name, baseURL string, timeoutMS int) *Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConns = 500
+	transport.MaxIdleConnsPerHost = 500
+	transport.MaxConnsPerHost = 500
+	transport.IdleConnTimeout = 90 * time.Second
+
 	return &Client{
-		httpClient: &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond},
-		baseURL:    baseURL,
-		name:       name,
+		httpClient: &http.Client{
+			Timeout:   time.Duration(timeoutMS) * time.Millisecond,
+			Transport: transport,
+		},
+		baseURL: baseURL,
+		name:    name,
 	}
 }
 
