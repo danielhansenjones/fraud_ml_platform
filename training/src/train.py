@@ -14,15 +14,11 @@ def fit_xgboost(
     params: dict,
     early_stopping_rounds: int = 50,
 ) -> xgb.XGBClassifier:
-    pos = y_train.sum()
-    neg = len(y_train) - pos
-    scale_pos_weight = float(neg / max(pos, 1))
-
+    # scale_pos_weight and max_delta_step are now part of `params` (Optuna-tuned).
     clf = xgb.XGBClassifier(
         tree_method="hist",
         device=os.environ.get("XGB_DEVICE", "cuda"),
         eval_metric="aucpr",
-        scale_pos_weight=scale_pos_weight,
         early_stopping_rounds=early_stopping_rounds,
         random_state=42,
         verbosity=1,

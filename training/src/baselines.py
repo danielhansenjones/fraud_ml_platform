@@ -18,7 +18,10 @@ from training.src.splits import PurgedTimeSeriesSplit
 
 _METRICS_KEYS = ["pr_auc", "roc_auc", "f1", "brier"]
 _XGB_DEVICE = os.environ.get("XGB_DEVICE", "cuda")
-_LGB_DEVICE = os.environ.get("LGB_DEVICE", "gpu")
+# LightGBM CUDA mishandles the baseline's max_depth=8 + num_leaves=63 + no-early-stop
+# combination (verified: PR-AUC drops to ~0.04, vs 0.57 on CPU and 0.62 with the
+# challenger's config on CUDA). Pinning the baseline to CPU; challenger keeps CUDA.
+_LGB_DEVICE = os.environ.get("LGB_DEVICE", "cpu")
 
 # sklearn LR and RF have no GPU path; subsample to keep baseline CV runtime reasonable.
 _LR_RF_SAMPLE = int(os.environ.get("LR_RF_SAMPLE", "100000"))

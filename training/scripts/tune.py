@@ -13,7 +13,7 @@ from training.src.tune import create_or_load_study, run_study
 ARTIFACTS = Path("training/artifacts")
 OPTUNA_DIR = Path("training/optuna")
 PLOTS = ARTIFACTS / "plots"
-N_TRIALS = 200
+N_TRIALS = 300
 
 
 def main() -> None:

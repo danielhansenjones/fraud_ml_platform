@@ -106,7 +106,7 @@ def main() -> None:
     fig.savefig(PLOTS / "calibration_before_after.png", dpi=150)
     plt.close(fig)
 
-    sample_size = min(10000, len(X_test))
+    sample_size = min(20000, len(X_test))
     X_shap = X_test.sample(sample_size, random_state=42)
     explainer = shap.TreeExplainer(clf)
     shap_values = explainer.shap_values(X_shap)
