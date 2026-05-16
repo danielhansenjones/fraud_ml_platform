@@ -1,5 +1,7 @@
 # Fraud ML Platform
 
+[![ci](https://github.com/danielhansenjones/fraud_ml_platform/actions/workflows/ci.yml/badge.svg)](https://github.com/danielhansenjones/fraud_ml_platform/actions/workflows/ci.yml)
+
 Most ML portfolio projects stop at model training.
 This one builds the production system around the model: ONNX inference in Go, a canary router with automated rollback, drift detection on rolling prediction windows, and a late-label evaluation loop that simulates the delay between a transaction and its fraud label.
 
@@ -38,7 +40,7 @@ LR and RF use a 100k stratified subsample to keep the baseline sweep within a fi
 
 ### Champion vs challenger (held-out test set)
 
-Same evaluation script, same NaN policy, same categorical encoding applied to test using train-time mappings.
+The same evaluation script, same NaN policy, same categorical encoding applied to test using train-time mappings.
 
 | Model                       | PR-AUC    | ROC-AUC   |
 |-----------------------------|-----------|-----------|
