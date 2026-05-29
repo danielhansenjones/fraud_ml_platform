@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="290" viewBox="0 0 760 290" role="img" aria-label="Steady-state serving latency against SLO budget">
+  <style>.t { font-family: "Segoe UI", Helvetica, Arial, sans-serif; }</style>
+  <rect x="0.5" y="0.5" width="759" height="289" rx="10" fill="#0d1117" stroke="#30363d"/>
+
+  <text class="t" x="32" y="40" fill="#e6edf3" font-size="18" font-weight="600">Serving latency vs SLO - steady-state, 100 RPS</text>
+  <text class="t" x="32" y="62" fill="#8b949e" font-size="12">60,001 requests, 0 errors over 10 min. Go + ONNX Runtime + Redis + async Postgres on single-node Compose.</text>
+
+  <!-- budget tracks -->
+  <rect x="150" y="110" width="128.6" height="34" rx="3" fill="#21262d"/>
+  <rect x="150" y="178" width="514.3" height="34" rx="3" fill="#21262d"/>
+
+  <!-- actual latency -->
+  <rect x="150" y="110" width="9.85" height="34" rx="3" fill="#3fb950"/>
+  <rect x="150" y="178" width="18.2"  height="34" rx="3" fill="#3fb950"/>
+
+  <!-- SLO markers -->
+  <line x1="278.6" y1="104" x2="278.6" y2="150" stroke="#f85149" stroke-width="2" stroke-dasharray="4 3"/>
+  <line x1="664.3" y1="172" x2="664.3" y2="218" stroke="#f85149" stroke-width="2" stroke-dasharray="4 3"/>
+
+  <!-- row labels -->
+  <g class="t" font-size="14" font-weight="600" text-anchor="end" fill="#c9d1d9">
+    <text x="138" y="132">p95</text>
+    <text x="138" y="200">p99</text>
+  </g>
+
+  <!-- value labels -->
+  <g class="t" fill="#e6edf3" font-size="13" font-weight="600">
+    <text x="168" y="125">3.83 ms</text>
+    <text x="176" y="193">7.08 ms</text>
+  </g>
+  <g class="t" fill="#8b949e" font-size="11">
+    <text x="168" y="141">13x inside SLO</text>
+    <text x="176" y="209">28x inside SLO</text>
+  </g>
+
+  <!-- SLO labels -->
+  <g class="t" fill="#f85149" font-size="11">
+    <text x="284" y="119">50 ms SLO</text>
+    <text x="658" y="187" text-anchor="end">200 ms SLO</text>
+  </g>
+
+  <!-- axis -->
+  <line x1="150" y1="240" x2="690" y2="240" stroke="#30363d" stroke-width="1"/>
+  <g class="t" fill="#8b949e" font-size="11" text-anchor="middle">
+    <text x="150" y="256">0</text>
+    <text x="278.6" y="256">50 ms</text>
+    <text x="407.1" y="256">100 ms</text>
+    <text x="535.7" y="256">150 ms</text>
+    <text x="664.3" y="256">200 ms</text>
+  </g>
+</svg>
