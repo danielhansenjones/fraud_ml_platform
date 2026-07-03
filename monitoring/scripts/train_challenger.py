@@ -100,7 +100,16 @@ def main() -> None:
     (CHALLENGER_DIR / "lgbm_best_params.json").write_text(json.dumps(best_params, indent=2))
     log.info("best params saved, PR-AUC=%.4f", study.best_value)
 
-    final_model = lgb.LGBMClassifier(**best_params)
+    # The CUDA build silently diverges on full-length fits (test PR-AUC 0.10 vs
+    # 0.59 on CPU); the short early-stopped tuning fits are unaffected.
+    fit_params = {**best_params, "device": "cpu"}
+
+    # The refit trains on val, so the threshold must come from a fit that does not.
+    twin = lgb.LGBMClassifier(**fit_params)
+    twin.fit(X_train, y_train, eval_set=[(X_val, y_val)], callbacks=[lgb.early_stopping(50, verbose=False)])
+    threshold = find_optimal_threshold(y_val.values, twin.predict_proba(X_val)[:, 1])
+
+    final_model = lgb.LGBMClassifier(**fit_params)
     final_model.fit(
         pd.concat([X_train, X_val]),
         pd.concat([y_train, y_val]),
@@ -111,7 +120,6 @@ def main() -> None:
     # degraded PR-AUC on the test set. Matches the champion's export decision.
 
     test_probs = final_model.predict_proba(X_test)[:, 1]
-    threshold = find_optimal_threshold(y_test.values, test_probs)
     metrics = compute_metrics(y_test.values, test_probs, threshold=threshold)
 
     results = {"uncalibrated": metrics, "best_cv_pr_auc": study.best_value}
@@ -185,10 +193,10 @@ def _export_onnx(model, feature_cols: list[str], cat_mappings: dict | None = Non
         (CHALLENGER_DIR / "lgbm_onnx_feature_order.json").write_text(json.dumps(feature_cols))
         log.info("ONNX exported: max_diff=%.2e sha256=%s", max_diff, sha256[:16])
 
-        # onnxmltools tree-to-ONNX conversion introduces ~1e-3 fp differences that are
-        # irreducible without a different export path. 0.01 is looser than XGBoost's
-        # 1e-5 but still tight enough that fraud flags don't change at any reasonable
-        # threshold.
+        # onnxmltools tree-to-ONNX conversion introduces fp differences (1e-4 to 1e-3
+        # across exports) that are irreducible without a different export path. 0.01 is
+        # looser than XGBoost's 1e-5 but still tight enough that fraud flags don't
+        # change at any reasonable threshold.
         if max_diff >= 0.01:
             raise RuntimeError(f"ONNX parity check failed: max_diff={max_diff:.2e}")
     except ImportError as e:

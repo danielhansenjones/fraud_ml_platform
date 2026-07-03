@@ -22,15 +22,29 @@ OPTUNA_DIR = ROOT / "training" / "optuna"
 
 def main() -> None:
     cat_mappings = json.loads((CHALLENGER_DIR / "lgbm_category_mappings.json").read_text())
+    train_df = pd.read_parquet(ARTIFACTS / "prep_train.parquet")
     test_df = pd.read_parquet(ARTIFACTS / "prep_test.parquet")
     feature_cols = [c for c in test_df.columns if c not in ("isFraud", "TransactionID")]
+    train_enc, _ = encode_categoricals(train_df[feature_cols + ["isFraud"]], mappings=cat_mappings)
     test_enc, _ = encode_categoricals(test_df[feature_cols + ["isFraud"]], mappings=cat_mappings)
+
+    # val is in-sample for the saved booster; same twin scheme as train_challenger.py.
+    best_params = json.loads((CHALLENGER_DIR / "lgbm_best_params.json").read_text())
+    val_start = int(len(train_enc) * 0.9)
+    tr = train_enc.iloc[:val_start]
+    val = train_enc.iloc[val_start:]
+    twin = lgb.LGBMClassifier(**{**best_params, "device": "cpu"})
+    twin.fit(
+        tr[feature_cols],
+        tr["isFraud"],
+        eval_set=[(val[feature_cols], val["isFraud"])],
+        callbacks=[lgb.early_stopping(50, verbose=False)],
+    )
+    threshold = find_optimal_threshold(val["isFraud"].values, twin.predict_proba(val[feature_cols])[:, 1])
 
     booster = lgb.Booster(model_file=str(CHALLENGER_DIR / "lgbm_final_model.txt"))
     test_probs = booster.predict(test_enc[feature_cols].values)
     y_test = test_enc["isFraud"].values
-
-    threshold = find_optimal_threshold(y_test, test_probs)
     metrics = compute_metrics(y_test, test_probs, threshold=threshold)
 
     study = optuna.load_study(
