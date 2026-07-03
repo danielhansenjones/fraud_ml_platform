@@ -5,9 +5,9 @@
 Production fraud-detection system, not just a trained model: ONNX inference in Go, a canary router with automated rollback, drift detection on rolling prediction windows, and a late-label evaluation loop that simulates the delay between a transaction and its fraud label.
 
 [![ci](https://github.com/danielhansenjones/fraud_ml_platform/actions/workflows/ci.yml/badge.svg)](https://github.com/danielhansenjones/fraud_ml_platform/actions/workflows/ci.yml)
-[![PR-AUC](https://img.shields.io/badge/test_PR--AUC-0.573_%2816x_over_base_rate%29-success)](#results)
+[![PR-AUC](https://img.shields.io/badge/test_PR--AUC-0.592_%2817x_over_base_rate%29-success)](#results)
 [![p95](https://img.shields.io/badge/p95_latency-3.83ms-success)](#results)
-[![ONNX parity](https://img.shields.io/badge/ONNX_parity-1.6e--3-success)](#results)
+[![ONNX parity](https://img.shields.io/badge/ONNX_parity-3.4e--4-success)](#results)
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![Go](https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white)](router/go.mod)
@@ -23,7 +23,7 @@ Production fraud-detection system, not just a trained model: ONNX inference in G
 
 Most ML portfolio projects stop at model training. This one builds the production system around the model.
 
-The XGBoost champion scores PR-AUC 0.523 on the held-out test set. A LightGBM challenger scores 0.573 on the same split and runs behind the router on 100% shadow traffic while the canary evaluator decides whether to promote it.
+The XGBoost champion scores PR-AUC 0.523 on the held-out test set. A LightGBM challenger scores 0.592 on the same split and runs behind the router on 100% shadow traffic while the canary evaluator decides whether to promote it.
 
 </div>
 
@@ -70,14 +70,14 @@ Every request hits the router, which forwards to the champion or challenger base
 
 ### Champion vs challenger (held-out test set)
 
-Same evaluation script, same NaN policy, same categorical encoding applied to test using train-time mappings.
+Same evaluation script, same NaN policy, same categorical encoding applied to test using train-time mappings. One protocol difference: the challenger is refit on train plus the validation window before export, the champion artifact is not. That recency edge is part of what a challenger deployment tests. Both decision thresholds are picked on validation data, never test.
 
 | Model                       | PR-AUC    | ROC-AUC   |
 |-----------------------------|-----------|-----------|
 | XGBoost tuned (champion)    | 0.523     | 0.906     |
-| LightGBM tuned (challenger) | **0.573** | **0.915** |
+| LightGBM tuned (challenger) | **0.592** | **0.920** |
 
-At a ~3.5% fraud base rate a random classifier scores PR-AUC ~0.035, so the champion's 0.523 is roughly a 15x lift and the challenger's 0.573 about 16x. The challenger beats the champion on test PR-AUC by 0.05 and ROC-AUC by 0.009; Brier is unchanged. This is the canary system's actual job: shadow it on live traffic and let the evaluator decide whether the advantage holds across multiple windows before promoting.
+At a ~3.5% fraud base rate a random classifier scores PR-AUC ~0.035, so the champion's 0.523 is roughly a 15x lift and the challenger's 0.592 about 17x. The challenger beats the champion on test PR-AUC by 0.069 and ROC-AUC by 0.014; Brier is within 0.0003. This is the canary system's actual job: shadow it on live traffic and let the evaluator decide whether the advantage holds across multiple windows before promoting.
 
 ### Baselines (5-fold purged time-series CV, train set only)
 
@@ -106,13 +106,13 @@ Cliff is the champion's ONNX inference, not the router or feature store. At the 
 
 **Temporal correctness in training.** Standard k-fold CV leaks future data into training folds on a time-ordered dataset. I used purged time-series splits and ran adversarial validation to identify the features driving distribution shift between train and test, then pruned them before training.
 
-**ONNX parity across a language boundary.** The Go serving layer loads an ONNX model exported from Python and runs inference via ONNX Runtime. XGBoost exports are bit-identical. LightGBM via onnxmltools required stripping ZipMap output nodes, removing a non-standard `nodes_hitrates` attribute, and patching the opset import before ORT 1.20.1 would accept the graph. The resulting max diff is 1.6e-3 - acceptable for any fraud flag threshold.
+**ONNX parity across a language boundary.** The Go serving layer loads an ONNX model exported from Python and runs inference via ONNX Runtime. XGBoost exports agree to within 6e-7 (0.00006 percentage points of probability). LightGBM via onnxmltools required stripping ZipMap output nodes, removing a non-standard `nodes_hitrates` attribute, and patching the opset import before ORT 1.20.1 would accept the graph. The resulting max diff is 3.4e-4 - acceptable for any fraud flag threshold.
 
 **Calibration negative result.** Isotonic calibration fit on the most recent validation window did not improve Brier on the held-out test set and slightly degraded PR-AUC. The step function collapses ranges of scores into ties, which loses ranking information when the test distribution sits on different breakpoints than the validation window the calibrator was fit on. The uncalibrated model is served.
 
 ### Safe model rollout
 
-The challenger receives 100% shadow traffic from the moment it is deployed, with zero impact on responses. The canary evaluator scores both models on labeled predictions, applies PR-AUC and Brier guardrails, and promotes after 3 consecutive improving evaluation windows. A single bad window triggers immediate rollback.
+The challenger receives 100% shadow traffic from the moment it is deployed, with zero impact on responses. The canary evaluator scores both models on labeled predictions, applies PR-AUC and Brier guardrails, and promotes after 3 consecutive improving evaluation windows. A single bad window triggers rollback at the next hourly evaluation; with the 500-labeled-prediction minimum this is a model-quality gate operating on a scale of hours, not an availability circuit breaker.
 
 ```mermaid
 flowchart TD

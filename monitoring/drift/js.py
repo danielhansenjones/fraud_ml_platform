@@ -5,8 +5,9 @@ from scipy.spatial.distance import jensenshannon
 
 
 def compute_js_on_hashes(reference_hashes: list[str], recent_hashes: list[str]) -> float:
-    """Buckets by the first byte of each hash (256 buckets). Catches gross schema or
-    input-space shifts but cannot distinguish mean drift from new categorical levels.
+    """Buckets by the first byte of each hash (256 buckets). SHA-256 buckets distinct
+    inputs uniformly, so this cannot see feature drift; it spikes on repeated identical
+    vectors or missing hashes. Pipeline-failure alarm, not a drift detector.
     """
     n_buckets = 256
     eps = 1e-6

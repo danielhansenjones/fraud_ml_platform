@@ -103,15 +103,16 @@ They're complementary.
 `features_hash` (SHA-256 of the feature vector) bucketed by first byte (256 buckets).
 JS divergence between reference and recent bucket distributions.
 
-Coarse fingerprint of the input space.
-If the bucketed-hash distribution shifts, something about the feature space changes structurally.
-Catches schema drift and gross feature shifts, not fine-grained per-feature drift.
-Use it as a red-flag signal.
+Honest limitation: SHA-256 spreads distinct inputs uniformly across buckets, so this metric cannot see feature drift.
+A drifted stream of distinct vectors buckets the same as a healthy one.
+What moves it: repeated identical vectors (a stuck pipeline serving one cached vector, a flood of defaults) or missing and malformed hashes.
+Treat it as a pipeline-failure alarm, not a drift detector.
+PSI and KS carry the drift signal.
 
 ## Label simulator caveats
 
 The `labels` table is populated by a simulator.
-On each run it finds predictions without a label, draws a delay from a log-normal distribution (mu=ln(86400) ~= 1 day, sigma=0.7, capped at 14 days), and inserts the label with `available_at = now()` if `prediction.created_at + delay <= now`.
+On each run it finds predictions without a label, draws a delay from a log-normal distribution (mu=ln(86400) ~= 1 day, sigma=0.7, capped at 14 days) seeded per transaction ID so repeated runs draw the same delay, and inserts the label with `available_at = created_at + delay` once that time has passed.
 The label value comes from the IEEE-CIS `isFraud` column for that TransactionID.
 
 This mimics real label latency in structure only.
@@ -230,16 +231,16 @@ Latency returned to baseline on the first request after unpause.
 ## LightGBM ONNX export
 
 onnxmltools converts LightGBM boosters to ONNX via a custom converter.
-At num_leaves=254, parity between native predict and ORT 1.20.1:
+At num_leaves=500, parity between native predict and ORT 1.20.1:
 
 ```
-max_diff: 1.64e-03
+max_diff: 3.37e-04
 passed:   true (threshold 0.01)
 ```
 
-1.6e-3 is a 0.16 percentage point probability disagreement.
+3.4e-4 is a 0.03 percentage point probability disagreement.
 At any real fraud threshold (0.3-0.7) this never changes a flag decision.
-XGBoost export is bit-identical; the LightGBM path has an irreducible ~1e-3 floor from how onnxmltools represents the tree ensemble in ONNX opset.
+XGBoost export agrees to within 6e-7 (0.00006 percentage points); the LightGBM path keeps a larger float gap (1e-4 to 1e-3 across exports) from how onnxmltools represents the tree ensemble in ONNX opset.
 
 Three fixes were needed to produce a graph ORT 1.20.1 accepts:
 

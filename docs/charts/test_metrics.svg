@@ -3,7 +3,7 @@
   <rect x="0.5" y="0.5" width="759" height="289" rx="10" fill="#0d1117" stroke="#30363d"/>
 
   <text class="t" x="32" y="40" fill="#e6edf3" font-size="18" font-weight="600">Champion vs challenger - held-out test set</text>
-  <text class="t" x="32" y="62" fill="#8b949e" font-size="12">LightGBM challenger (green) vs XGBoost champion (amber). Same eval script and encoding. Challenger leads PR-AUC by +0.050.</text>
+  <text class="t" x="32" y="62" fill="#8b949e" font-size="12">LightGBM challenger (green) vs XGBoost champion (amber). Same eval script and encoding. Challenger leads PR-AUC by +0.069.</text>
 
   <g stroke="#21262d" stroke-width="1">
     <line x1="210" y1="82" x2="210" y2="240"/>
@@ -21,25 +21,25 @@
     <text x="680" y="256">1.0</text>
   </g>
 
-  <rect x="210" y="96"  width="269" height="26" rx="3" fill="#3fb950"/>
+  <rect x="210" y="96"  width="278" height="26" rx="3" fill="#3fb950"/>
   <rect x="210" y="128" width="246" height="26" rx="3" fill="#d29922"/>
   <g class="t" font-size="13" text-anchor="end" fill="#c9d1d9">
     <text x="196" y="113">PR-AUC  challenger</text>
     <text x="196" y="145">PR-AUC  champion</text>
   </g>
   <g class="t" font-size="13" font-weight="600" fill="#e6edf3">
-    <text x="487" y="113">0.573</text>
+    <text x="496" y="113">0.592</text>
     <text x="464" y="145">0.523</text>
   </g>
 
-  <rect x="210" y="172" width="430" height="26" rx="3" fill="#3fb950"/>
+  <rect x="210" y="172" width="432" height="26" rx="3" fill="#3fb950"/>
   <rect x="210" y="204" width="426" height="26" rx="3" fill="#d29922"/>
   <g class="t" font-size="13" text-anchor="end" fill="#c9d1d9">
     <text x="196" y="189">ROC-AUC  challenger</text>
     <text x="196" y="221">ROC-AUC  champion</text>
   </g>
   <g class="t" font-size="13" font-weight="600" fill="#e6edf3">
-    <text x="648" y="189">0.915</text>
+    <text x="650" y="189">0.920</text>
     <text x="644" y="221">0.906</text>
   </g>
 </svg>
