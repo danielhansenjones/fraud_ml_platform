@@ -7,11 +7,13 @@ import numpy as np
 from psycopg_pool import ConnectionPool
 
 
-def default_delay_distribution(mu: float = np.log(86400), sigma: float = 0.7, max_days: int = 14) -> Callable[[], timedelta]:
+def default_delay_distribution(mu: float = np.log(86400), sigma: float = 0.7, max_days: int = 14) -> Callable[[int], timedelta]:
     max_seconds = max_days * 86400
 
-    def sample() -> timedelta:
-        seconds = min(np.random.lognormal(mu, sigma), max_seconds)
+    # Re-drawing each run takes the min over draws, biasing arrivals early.
+    def sample(transaction_id: int) -> timedelta:
+        rng = np.random.default_rng(transaction_id)
+        seconds = min(rng.lognormal(mu, sigma), max_seconds)
         return timedelta(seconds=float(seconds))
 
     return sample
@@ -20,7 +22,7 @@ def default_delay_distribution(mu: float = np.log(86400), sigma: float = 0.7, ma
 def simulate_label_arrivals(
     db_pool: ConnectionPool,
     ground_truth: dict[int, bool],
-    delay_distribution: Callable[[], timedelta],
+    delay_distribution: Callable[[int], timedelta],
     max_inserts_per_run: int = 5000,
 ) -> int:
     """Delay distribution is configurable but not calibrated to real chargeback timing.
@@ -51,9 +53,10 @@ def simulate_label_arrivals(
     for transaction_id, created_at in rows:
         if transaction_id not in ground_truth:
             continue
-        delay = delay_distribution()
-        if created_at + delay <= now:
-            to_insert.append((transaction_id, ground_truth[transaction_id]))
+        delay = delay_distribution(transaction_id)
+        available_at = created_at + delay
+        if available_at <= now:
+            to_insert.append((transaction_id, ground_truth[transaction_id], available_at))
         if len(to_insert) >= max_inserts_per_run:
             break
 
@@ -62,14 +65,14 @@ def simulate_label_arrivals(
 
     with db_pool.connection() as conn:
         with conn.transaction():
-            for transaction_id, is_fraud in to_insert:
+            for transaction_id, is_fraud, available_at in to_insert:
                 conn.execute(
                     """
                     INSERT INTO labels (transaction_id, is_fraud, label_source, available_at)
-                    VALUES (%s, %s, 'simulator', NOW())
+                    VALUES (%s, %s, 'simulator', %s)
                     ON CONFLICT (transaction_id) DO NOTHING
                     """,
-                    (transaction_id, is_fraud),
+                    (transaction_id, is_fraud, available_at),
                 )
 
     return len(to_insert)

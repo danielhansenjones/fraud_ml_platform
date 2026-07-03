@@ -4,7 +4,7 @@ from datetime import timedelta
 from unittest.mock import MagicMock
 
 
-from monitoring.labels.simulator import simulate_label_arrivals
+from monitoring.labels.simulator import default_delay_distribution, simulate_label_arrivals
 
 
 def _make_pool(rows: list[tuple]) -> MagicMock:
@@ -36,7 +36,7 @@ def test_deterministic_zero_delay_inserts_all():
     pool = _make_pool(rows)
 
     ground_truth = {1001: True, 1002: False, 1003: True}
-    def zero_delay(): return timedelta(seconds=0)
+    def zero_delay(_txn): return timedelta(seconds=0)
 
     n = simulate_label_arrivals(pool, ground_truth, zero_delay, max_inserts_per_run=100)
 
@@ -52,7 +52,7 @@ def test_future_delay_inserts_nothing():
     pool = _make_pool(rows)
 
     ground_truth = {1001: True}
-    def far_future_delay(): return timedelta(days=365)
+    def far_future_delay(_txn): return timedelta(days=365)
 
     n = simulate_label_arrivals(pool, ground_truth, far_future_delay, max_inserts_per_run=100)
 
@@ -62,7 +62,7 @@ def test_future_delay_inserts_nothing():
 def test_idempotent_with_no_candidates():
     pool = _make_pool([])
     ground_truth = {1001: True}
-    n = simulate_label_arrivals(pool, ground_truth, lambda: timedelta(0), max_inserts_per_run=100)
+    n = simulate_label_arrivals(pool, ground_truth, lambda _txn: timedelta(0), max_inserts_per_run=100)
     assert n == 0
 
 
@@ -76,7 +76,7 @@ def test_respects_max_inserts_per_run():
     pool = _make_pool(rows)
 
     ground_truth = {i: i % 2 == 0 for i in range(1000, 1200)}
-    n = simulate_label_arrivals(pool, ground_truth, lambda: timedelta(0), max_inserts_per_run=50)
+    n = simulate_label_arrivals(pool, ground_truth, lambda _txn: timedelta(0), max_inserts_per_run=50)
 
     assert n <= 50
 
@@ -91,6 +91,33 @@ def test_only_known_transaction_ids_inserted():
     pool = _make_pool(rows)
 
     ground_truth = {1001: True}  # 9999 is not in ground truth
-    n = simulate_label_arrivals(pool, ground_truth, lambda: timedelta(0))
+    n = simulate_label_arrivals(pool, ground_truth, lambda _txn: timedelta(0))
 
     assert n == 1, f"expected 1 insert (only known tx), got {n}"
+
+
+def test_available_at_is_created_at_plus_delay():
+    from datetime import datetime, timezone
+
+    now = datetime.now(tz=timezone.utc)
+    created_at = now - timedelta(hours=3)
+    delay = timedelta(hours=2)
+
+    pool = _make_pool([(1001, created_at)])
+    conn = pool.connection.return_value
+
+    n = simulate_label_arrivals(pool, {1001: True}, lambda _txn: delay)
+    assert n == 1
+
+    insert_calls = [c for c in conn.execute.call_args_list if "INSERT INTO labels" in c.args[0]]
+    assert len(insert_calls) == 1
+    txn_id, is_fraud, available_at = insert_calls[0].args[1]
+    assert txn_id == 1001
+    assert is_fraud is True
+    assert available_at == created_at + delay
+
+
+def test_default_delay_is_deterministic_per_transaction():
+    dist = default_delay_distribution()
+    assert dist(1001) == dist(1001)
+    assert dist(1001) != dist(1002)
