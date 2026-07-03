@@ -115,7 +115,8 @@ def test_summary_id_is_deterministic_per_window():
     # Two back-to-back calls fall into different microsecond windows, so a
     # direct id1 == id2 check cannot prove determinism. Recompute the recipe
     # directly against the first window's timestamps instead.
-    import hashlib, uuid as _uuid
+    import hashlib
+    import uuid as _uuid
     key = f"{result1['window_start'].isoformat()}|{result1['window_end'].isoformat()}"
     expected = str(_uuid.UUID(hashlib.md5(key.encode()).hexdigest()))
     assert result1["summary_id"] == expected

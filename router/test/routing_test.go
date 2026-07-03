@@ -293,4 +293,3 @@ func TestScore_ContextCancelled(t *testing.T) {
 		t.Fatal("handler did not return after context cancellation")
 	}
 }
-
