@@ -137,6 +137,13 @@ Python, Go, Redis, Postgres, ONNX Runtime, Prometheus, Grafana, k6, Docker Compo
 
 ## How to Run
 
+Training data is the [IEEE-CIS Fraud Detection](https://www.kaggle.com/competitions/ieee-fraud-detection) dataset, not included in this repo. Download it with the [Kaggle CLI](https://github.com/Kaggle/kaggle-api) (requires a Kaggle account and accepting the competition rules):
+
+```bash
+kaggle competitions download -c ieee-fraud-detection
+unzip ieee-fraud-detection.zip -d data/ieee_cis/
+```
+
 ```bash
 uv sync
 cp .env.example .env  # edit CHAMPION_VERSION / CHALLENGER_VERSION after monitoring setup
